@@ -83,6 +83,7 @@ function createEnv(opts) {
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     Utilities: {
       getUuid: () => crypto.randomUUID(),
+      sleep: ms => { gmail.slept = (gmail.slept || 0) + ms; },
       formatDate,
       base64DecodeWebSafe: s => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
       newBlob: x => ({
@@ -143,6 +144,10 @@ function createEnv(opts) {
             return { messages: msgs.map(m => ({ id: m.id })) };
           },
           get(user, id, o) {
+            gmail.gets = (gmail.gets || 0) + 1;
+            if (gmail.quotaAfter !== undefined && gmail.gets > gmail.quotaAfter) {
+              throw new Error("Échec de l'appel d'API vers gmail.users.messages.get avec l'erreur suivante : Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'");
+            }
             const m = gmail.messages.find(x => x.id === id);
             const msg = {
               id, internalDate: String(new Date(m.date).getTime()),

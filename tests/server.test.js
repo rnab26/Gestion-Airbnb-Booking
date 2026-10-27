@@ -410,9 +410,10 @@ test('Boîte très chargée : lecture étalée sur plusieurs synchros, rien de p
   const { env, owner } = setup({ noSync: true, withIcal: false });
   for (let i = 0; i < 900; i++) env.gmail.messages.unshift({ id: 'p' + i, from: 'automated@airbnb.com', date: '2026-01-01T10:00:00Z', subject: 'Promo ' + i, body: '' });
   let d = env.api(owner, 'sync');
-  assert.match(d.lastSync.message, /prochaines synchros/);
-  d = env.api(owner, 'sync');
-  assert.doesNotMatch(d.lastSync.message, /prochaines synchros/);
+  assert.match(d.lastSync.message, /suite à la prochaine synchro/);
+  let n = 1;
+  while (/suite à la prochaine synchro/.test(d.lastSync.message) && n < 10) { d = env.api(owner, 'sync'); n++; }
+  assert.equal(n, 4, '900 e-mails lus en 4 passages de 300 maximum');
   assert.ok(byKey(d, 'airbnb:HMTEST0001'), 'confirmation lue');
   assert.equal(byKey(d, 'airbnb:HMTEST0003').status, 'cancelled');
 });
@@ -506,4 +507,20 @@ test('Application installable : adresse réglable, vide = liens directs', () => 
   assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, data.settings, { appUrl: 'http://x' })), /Adresse de l'application/);
   d = env.api(owner, 'saveSettings', Object.assign({}, data.settings, { appUrl: 'https://exemple.fr/app/' }));
   assert.ok(d.ownerUrl.startsWith('https://exemple.fr/app/#'));
+});
+
+test('Limite Gmail atteinte : pas d’erreur rouge, lecture reprise ensuite sans perte', () => {
+  const { env, owner } = setup({ noSync: true });
+  env.gmail.quotaAfter = 4; // Gmail refuse à partir de la 5e lecture (même après les nouveaux essais)
+  let d = env.api(owner, 'sync');
+  assert.equal(d.lastSync.ok, true, d.lastSync.message);
+  assert.match(d.lastSync.message, /limite Gmail|limite les lectures/);
+  assert.ok(!/Quota exceeded/.test(d.lastSync.message), 'message technique masqué');
+  env.gmail.quotaAfter = undefined;
+  d = env.api(owner, 'sync');
+  d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'airbnb:HMTEST0001').net, 412.3);
+  assert.equal(byKey(d, 'airbnb:HMTEST0003').status, 'cancelled');
+  assert.equal(byKey(d, 'booking:7100000002').status, 'cancelled');
+  assert.ok(env.gmail.slept > 0, 'appels Gmail espacés');
 });

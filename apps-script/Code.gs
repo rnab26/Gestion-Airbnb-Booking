@@ -483,8 +483,8 @@ function runSync_(kind) {
       warnings: []
     };
     if (settings.emailScanEnabled) {
-      try { scanEmails_(ctx); } catch (e) { ctx.errors.push('Lecture des e-mails : ' + e.message); }
-      try { scanBookingInvoices_(ctx); } catch (e) { ctx.errors.push('Factures Booking : ' + e.message); }
+      try { scanEmails_(ctx); } catch (e) { (isQuotaError_(e) ? ctx.warnings : ctx.errors).push('Lecture des e-mails : ' + friendlyError_(e)); }
+      try { scanBookingInvoices_(ctx); } catch (e) { (isQuotaError_(e) ? ctx.warnings : ctx.errors).push('Factures Booking : ' + friendlyError_(e)); }
     }
     [['airbnb', settings.icalAirbnb, 'Airbnb'], ['booking', settings.icalBooking, 'Booking']].forEach(function (s) {
       if (!s[1]) return;
@@ -664,46 +664,53 @@ function scanEmails_(ctx) {
   var props = PropertiesService.getScriptProperties();
   var tz = Session.getScriptTimeZone() || 'Europe/Paris';
   var last = props.getProperty('lastEmailScan');
-  // Expéditeurs vérifiés sur les vrais e-mails (confirmations, annulations, noms de voyageurs Booking).
-  var q = 'from:(automated@airbnb.com OR noreply@booking.com OR customer.relations@booking.com)' + (last ? ' after:' + last : '');
+  // Seuls les e-mails utiles (expéditeurs et sujets vérifiés sur les vrais e-mails) : moins de lectures Gmail.
+  var q = '{(from:automated@airbnb.com subject:(confirmée OR confirmed OR annulation OR annulée OR canceled OR cancelled))' +
+    ' (from:noreply@booking.com subject:("nouvelle réservation" OR annulée OR modification OR "new booking" OR cancelled OR cancellation))}' +
+    (last ? ' after:' + last : '');
   var processed = {};
   readRows_(SHEET_EMAILS, ['id']).forEach(function (r) { processed[r.id] = true; });
   var ids = [];
   var pageToken = null;
   for (var guard = 0; guard < 50; guard++) {
-    var resp = Gmail.Users.Messages.list('me', { q: q, maxResults: 500, pageToken: pageToken || undefined });
+    var resp = gmail_(function () { return Gmail.Users.Messages.list('me', { q: q, maxResults: 500, pageToken: pageToken || undefined }); });
     (resp.messages || []).forEach(function (m) { if (!processed[m.id]) ids.push(m.id); });
     pageToken = resp.nextPageToken;
     if (!pageToken) break;
   }
-  // Plafond par passage (limite de 6 min d'Apps Script) : le reste est lu à la synchro suivante.
-  var MAX_PER_RUN = 800;
-  var truncated = ids.length > MAX_PER_RUN;
-  if (truncated) ids = ids.slice(ids.length - MAX_PER_RUN);
-  var metas = ids.map(function (id) {
-    var m = Gmail.Users.Messages.get('me', id, { format: 'metadata', metadataHeaders: ['From', 'Subject'] });
-    return {
-      id: id,
-      date: new Date(Number(m.internalDate)),
-      from: header_(m, 'From').toLowerCase(),
-      subject: header_(m, 'Subject')
-    };
-  });
+  // Plafond par passage (limites Gmail et 6 min d'Apps Script) : le reste est lu à la synchro suivante.
+  var truncated = ids.length > GMAIL_MAX_PER_RUN;
+  if (truncated) ids = ids.slice(ids.length - GMAIL_MAX_PER_RUN); // les plus anciens d'abord
+  var metas = [];
+  for (var i = 0; i < ids.length; i++) {
+    var m;
+    try {
+      m = gmail_(function () { return Gmail.Users.Messages.get('me', ids[i], { format: 'metadata', metadataHeaders: ['From', 'Subject'] }); });
+    } catch (e) {
+      if (!isQuotaError_(e)) throw e;
+      truncated = true;
+      break;
+    }
+    metas.push({ id: ids[i], date: new Date(Number(m.internalDate)), from: header_(m, 'From').toLowerCase(), subject: header_(m, 'Subject') });
+  }
   metas.sort(function (a, b) { return a.date - b.date; });
   var done = [];
+  var stop = false;
   metas.forEach(function (m) {
     var ymd = Utilities.formatDate(m.date, tz, 'yyyy-MM-dd');
+    if (stop) return;
     try {
       if (m.from.indexOf('airbnb') >= 0) handleAirbnbEmail_(ctx, m, ymd);
       else if (m.from.indexOf('booking.com') >= 0) handleBookingEmail_(ctx, m, ymd);
     } catch (e) {
+      if (isQuotaError_(e)) { stop = true; truncated = true; return; } // repris tel quel à la prochaine synchro
       ctx.errors.push('e-mail « ' + m.subject.slice(0, 60) + ' » : ' + e.message);
     }
     done.push(m.id);
   });
   ctx.counts.emails = done.length;
   appendRows_(SHEET_EMAILS, ['id'], done.map(function (id) { return { id: id }; }));
-  if (truncated) ctx.warnings.push('beaucoup d\'e-mails : lecture terminée aux prochaines synchros');
+  if (truncated) ctx.warnings.push('lecture des e-mails en plusieurs fois (limite Gmail) : suite à la prochaine synchro, rien n\'est perdu');
   else props.setProperty('lastEmailScan', Utilities.formatDate(new Date(Date.now() - 3 * 86400000), tz, 'yyyy/MM/dd'));
 }
 
@@ -714,17 +721,26 @@ function scanEmails_(ctx) {
 function scanBookingInvoices_(ctx) {
   var known = {};
   readRows_(SHEET_INVOICES, INVOICE_COLS).forEach(function (i) { known[i.emailId] = true; known['n' + i.number] = true; });
-  var resp = Gmail.Users.Messages.list('me', { q: 'from:booking.com subject:(invoice OR facture) has:attachment', maxResults: 100 });
+  var resp = gmail_(function () { return Gmail.Users.Messages.list('me', { q: 'from:booking.com subject:(invoice OR facture) has:attachment', maxResults: 100 }); });
   var added = [];
+  var stop = false;
   (resp.messages || []).forEach(function (ref) {
-    if (known[ref.id]) return;
-    var msg = Gmail.Users.Messages.get('me', ref.id, { format: 'full' });
+    if (known[ref.id] || stop) return;
+    var msg;
+    try {
+      msg = gmail_(function () { return Gmail.Users.Messages.get('me', ref.id, { format: 'full' }); });
+    } catch (e) {
+      if (!isQuotaError_(e)) throw e;
+      stop = true;
+      ctx.warnings.push('factures Booking : limite Gmail atteinte, suite à la prochaine synchro');
+      return;
+    }
     var subject = header_(msg, 'Subject');
     if (!/invoice|facture/i.test(subject)) return;
     var att = findPdfPart_(msg.payload);
     if (!att) return;
     try {
-      var data = Gmail.Users.Messages.Attachments.get('me', ref.id, att.body.attachmentId).data;
+      var data = gmail_(function () { return Gmail.Users.Messages.Attachments.get('me', ref.id, att.body.attachmentId); }).data;
       var text = pdfToText_(Utilities.base64DecodeWebSafe(data), att.filename || 'facture.pdf');
       var inv = parseBookingInvoice_(text, subject);
       if (!inv) { ctx.warnings.push('facture Booking illisible : « ' + subject + ' »'); return; }
@@ -778,7 +794,7 @@ function pdfToText_(bytes, name) {
 
 function handleAirbnbEmail_(ctx, m, ymd) {
   if (isAirbnbConfirmationSubject_(m.subject)) {
-    var body = plainBody_(Gmail.Users.Messages.get('me', m.id, { format: 'full' }));
+    var body = plainBody_(gmail_(function () { return Gmail.Users.Messages.get('me', m.id, { format: 'full' }); }));
     var p = parseAirbnbConfirmation_(m.subject, body, ymd);
     if (!p) { ctx.warnings.push('format Airbnb non reconnu : « ' + m.subject.slice(0, 60) + ' »'); return; }
     var r = upsert_(ctx, 'airbnb:' + p.code, { source: 'airbnb', origin: 'email', status: 'confirmed' }, {
@@ -1344,6 +1360,35 @@ function indexBy_(rows, k) {
   var o = {};
   rows.forEach(function (r) { o[r[k]] = r; });
   return o;
+}
+
+// Gmail limite les lectures par minute et par utilisateur : on espace les appels
+// et on réessaie quelques fois avant de remettre la suite à la synchro suivante.
+var GMAIL_PAUSE_MS = 120;
+var GMAIL_MAX_PER_RUN = 300;
+var GMAIL_RETRY_WAITS_MS = [2000, 5000, 12000];
+
+function isQuotaError_(e) {
+  return /quota|rate ?limit|too many requests|429|userRateLimitExceeded/i.test(String(e && e.message || e));
+}
+
+function gmail_(fn) {
+  for (var attempt = 0; ; attempt++) {
+    try {
+      var out = fn();
+      Utilities.sleep(GMAIL_PAUSE_MS);
+      return out;
+    } catch (e) {
+      if (!isQuotaError_(e) || attempt >= GMAIL_RETRY_WAITS_MS.length) throw e;
+      Utilities.sleep(GMAIL_RETRY_WAITS_MS[attempt]);
+    }
+  }
+}
+
+/** Message d'erreur lisible pour l'écran (les détails techniques restent dans le journal Apps Script). */
+function friendlyError_(e) {
+  if (isQuotaError_(e)) return 'Gmail limite les lectures par minute : la suite se fera seule à la prochaine synchro (rien n\'est perdu).';
+  return String(e && e.message || e);
 }
 
 function header_(msg, name) {
