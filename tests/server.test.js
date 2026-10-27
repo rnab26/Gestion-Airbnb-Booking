@@ -93,8 +93,10 @@ test('Installation : base, liens, déclencheur, e-mail du lien', () => {
   assert.match(res.directUrl, /^https:\/\/script\.google\.com\/macros\/s\/TEST\/exec\?k=[0-9a-f]{64}$/);
   assert.equal(res.ownerUrl, 'https://rnab26.github.io/Gestion-Airbnb-Booking/#' + res.directUrl, 'lien via l’application installable');
   assert.equal(env.ctx.doGet({ parameter: {} }).xfo, 'ALLOWALL', 'affichable dans l’application');
-  assert.equal(env.triggers.length, 1);
-  assert.equal(env.triggers[0].every, '1h');
+  const sync = env.triggers.filter(t => t.fn === 'syncAll');
+  assert.equal(sync.length, 1);
+  assert.equal(sync[0].every, '1h');
+  assert.equal(env.triggers.filter(t => t.fn === 'autoUpdate').length, 1);
   assert.equal(env.mails.length, 1);
   assert.ok(env.mails[0].body.includes(res.ownerUrl));
   assert.ok(env.sheet('Reservations') && env.sheet('Notes') && env.sheet('Journal'));
@@ -305,10 +307,12 @@ test('Changer le lien gestionnaire : l’ancien ne marche plus', () => {
 test('Fréquence de synchro : déclencheur recréé', () => {
   const { env, owner, data } = setup({ withIcal: false });
   env.api(owner, 'saveSettings', Object.assign({}, data.settings, { syncEveryHours: 6 }));
-  assert.equal(env.triggers.length, 1);
-  assert.equal(env.triggers[0].every, '6h');
+  const sync = () => env.triggers.filter(t => t.fn === 'syncAll');
+  assert.equal(sync().length, 1);
+  assert.equal(sync()[0].every, '6h');
   env.api(owner, 'saveSettings', Object.assign({}, data.settings, { syncEveryHours: 24 }));
-  assert.equal(env.triggers[0].every, '1d');
+  assert.equal(sync()[0].every, '1d');
+  assert.equal(env.triggers.filter(t => t.fn === 'autoUpdate').length, 1, 'mise à jour auto conservée');
 });
 
 // ---------- Booking : factures mensuelles ----------
@@ -555,4 +559,67 @@ test('Fichier tout-en-un (dist/) : à jour et fonctionne sans Index.html', () =>
   const res = env.install();
   const page = env.ctx.doGet({ parameter: { k: res.directUrl.split('k=')[1] } }).getContent();
   assert.ok(page.includes('"mode":"owner"') && page.includes('function renderOwner'));
+});
+
+// ---------- mise à jour automatique ----------
+function updateEnv(remoteVersion) {
+  const s = setup({ withIcal: false });
+  const p = require('path');
+  const bundle = fs.readFileSync(p.join(__dirname, '..', 'dist', 'Code-complet.gs'), 'utf8');
+  s.env.update.github['dist/Code-complet.gs'] = bundle.replace(/var APP_VERSION = '[^']+'/, "var APP_VERSION = '" + remoteVersion + "'");
+  s.env.update.github['apps-script/appsscript.json'] = s.env.update.currentManifest;
+  return s;
+}
+
+test('Mise à jour auto : nouvelle version → code remplacé, version créée, déploiement basculé', () => {
+  const { env, owner } = updateEnv('9.9.9');
+  const d = env.api(owner, 'checkUpdate');
+  assert.equal(d.lastUpdate.ok, true, d.lastUpdate.message);
+  assert.match(d.lastUpdate.message, /→ 9\.9\.9/);
+  const calls = env.update.calls.map(c => c.method + ' ' + c.path);
+  assert.deepEqual(calls, ['get /projects/SCRIPT_ID/content', 'put /projects/SCRIPT_ID/content', 'post /projects/SCRIPT_ID/versions', 'put /projects/SCRIPT_ID/deployments/TEST']);
+  const files = env.update.calls[1].body.files;
+  assert.deepEqual(files.map(f => f.name + ':' + f.type), ['Code:SERVER_JS', 'appsscript:JSON']);
+  assert.match(files[0].source, /var APP_VERSION = '9\.9\.9'/);
+  assert.equal(env.update.calls[3].body.deploymentConfig.versionNumber, 7);
+});
+
+test('Mise à jour auto : déjà à jour → rien touché', () => {
+  const { env, owner, data } = updateEnv('X');
+  env.update.github['dist/Code-complet.gs'] = env.update.github['dist/Code-complet.gs'].replace("var APP_VERSION = 'X'", "var APP_VERSION = '" + data.version + "'");
+  const d = env.api(owner, 'checkUpdate');
+  assert.match(d.lastUpdate.message, /Déjà à jour/);
+  assert.equal(env.update.calls.length, 0);
+});
+
+test('Mise à jour auto : nouveaux accès Google demandés → pas installée, propriétaire prévenu', () => {
+  const { env, owner } = updateEnv('9.9.9');
+  const m = JSON.parse(env.update.currentManifest);
+  m.oauthScopes.push('https://mail.google.com/');
+  env.update.github['apps-script/appsscript.json'] = JSON.stringify(m);
+  assert.throws(() => env.api(owner, 'checkUpdate'), /nouveaux accès Google/);
+  assert.ok(!env.update.calls.some(c => c.method === 'put'));
+  assert.equal(env.api(owner, 'load').lastUpdate.needsOwner, true);
+});
+
+test('Mise à jour auto : code tronqué refusé ; API non activée → message clair', () => {
+  let { env, owner } = updateEnv('9.9.9');
+  env.update.github['dist/Code-complet.gs'] = env.update.github['dist/Code-complet.gs'].slice(0, 50000) + "\nvar INDEX_HTML_ = 'x';";
+  assert.throws(() => env.api(owner, 'checkUpdate'), /invalide|incomplet/);
+  assert.ok(!env.update.calls.some(c => c.method === 'put'));
+  ({ env, owner } = updateEnv('9.9.9'));
+  env.update.apiDisabled = true;
+  assert.throws(() => env.api(owner, 'checkUpdate'), /script\.google\.com\/home\/usersettings/);
+});
+
+test('Mise à jour auto : déclencheur quotidien posé, désactivable, réservé au propriétaire', () => {
+  const { env, owner, manager, data } = updateEnv('9.9.9');
+  assert.ok(env.triggers.some(t => t.fn === 'autoUpdate' && t.every === '1d' && t.atHour === 4));
+  assert.throws(() => env.api(manager, 'checkUpdate'), /Action non autorisée/);
+  env.api(owner, 'saveSettings', Object.assign({}, data.settings, { autoUpdateEnabled: false }));
+  env.ctx.autoUpdate();
+  assert.equal(env.update.calls.length, 0, 'désactivée : rien');
+  env.api(owner, 'saveSettings', Object.assign({}, data.settings, { autoUpdateEnabled: true }));
+  env.ctx.autoUpdate();
+  assert.ok(env.update.calls.some(c => /deployments/.test(c.path)));
 });

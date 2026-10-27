@@ -332,8 +332,15 @@ function syncNow(btn) {
   });
 }
 
+function linkify(t) {
+  return esc(t).replace(/https:\/\/[^\s)]+/g, function (u) { return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>'; });
+}
+
 function banners() {
   var d = S.data, out = '';
+  if (d.lastUpdate && !d.lastUpdate.ok && d.settings.autoUpdateEnabled) {
+    out += '<div class="banner warn"><b>Mise à jour automatique en attente.</b> ' + linkify(d.lastUpdate.message) + '</div>';
+  }
   if (!d.settings.icalAirbnb || !d.settings.icalBooking) {
     out += '<div class="banner info">Pour des dates toujours à jour, ajoute ' +
       (!d.settings.icalAirbnb && !d.settings.icalBooking ? 'tes liens calendrier Airbnb et Booking' : !d.settings.icalAirbnb ? 'ton lien calendrier Airbnb' : 'ton lien calendrier Booking') +
@@ -744,6 +751,10 @@ function viewSettings() {
     (d.ownerDirectUrl !== d.ownerUrl ? '<button type="button" class="btn small" data-copy="' + esc(d.ownerDirectUrl) + '">Copier le lien direct</button>' : '') + '</div></div>' +
     '<div class="card"><h3>Application installable</h3><label class="f"><span>Adresse de l\'application</span><input type="url" name="appUrl" value="' + esc(s.appUrl) + '" placeholder="Vide = liens directs"></label>' +
     '<p class="help">Les liens partagés passent par cette page pour qu\'on puisse installer l\'application depuis Chrome (menu ⋮ › Installer l\'application). Vide : liens directs Google.</p></div>' +
+    '<div class="card"><h3>Mises à jour</h3>' +
+    chk('autoUpdateEnabled', 'Mettre à jour l\'outil automatiquement (chaque nuit)', 'Seulement les versions qui ont passé tous les tests. Jamais de nouvel accès Google sans ton accord.') +
+    '<p class="small">Version ' + esc(d.version) + (d.lastUpdate ? ' — dernière vérification ' + esc(ago(d.lastUpdate.at)) + ' : ' + linkify(d.lastUpdate.message) : '') + '</p>' +
+    '<button type="button" class="btn small" id="updBtn">Vérifier maintenant</button></div>' +
     '<div class="card"><h3>Mes données</h3><p class="help">Tout est stocké dans un Google Sheet de ton Drive (export, sauvegarde, filtres…).</p>' +
     '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.sheetUrl) + '">Ouvrir le Google Sheet</a>' +
     '<p class="help">Version ' + esc(d.version) + '</p></div>' +
@@ -764,6 +775,7 @@ function copyText(t) {
 function bindSettings(root) {
   root.querySelectorAll('[data-copy]').forEach(function (b) { b.onclick = function () { copyText(b.getAttribute('data-copy')); }; });
   $('#syncBtn2', root).onclick = function () { syncNow(this); };
+  $('#updBtn', root).onclick = function () { act('checkUpdate', {}, 'Vérification terminée', this).then(function (ok) { if (ok && S.data.lastUpdate) toast(S.data.lastUpdate.message); }); };
   $('#regen', root).onclick = function () {
     confirmDialog('Changer le lien de la gestionnaire ? L\'ancien lien ne marchera plus : il faudra lui envoyer le nouveau.', 'Changer le lien', true).then(function (ok) {
       if (ok) act('regenerateManagerLink', {}, 'Nouveau lien créé : pense à l\'envoyer');
@@ -776,7 +788,7 @@ function bindSettings(root) {
     var p = {};
     ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
     p.syncEveryHours = +p.syncEveryHours;
-    ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerCanAddNotes'].forEach(function (k) { p[k] = !!fd.get(k); });
+    ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerCanAddNotes', 'autoUpdateEnabled'].forEach(function (k) { p[k] = !!fd.get(k); });
     var before = S.data.settings;
     var icalChanged = p.icalAirbnb !== before.icalAirbnb || p.icalBooking !== before.icalBooking || (p.emailScanEnabled && !before.emailScanEnabled);
     act('saveSettings', p, 'Réglages enregistrés', $('#setSave')).then(function (ok) {

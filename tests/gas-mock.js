@@ -53,6 +53,7 @@ function createEnv(opts) {
   const gmail = { messages: opts.messages || [] };
   const logs = [];
   const drive = { n: 0, files: {}, deleted: 0, fail: false };
+  const update = { github: {}, calls: [], apiDisabled: false, currentManifest: fs.readFileSync(path.join(ROOT, 'appsscript.json'), 'utf8') };
 
   const ctx = {
     console,
@@ -99,11 +100,13 @@ function createEnv(opts) {
     ScriptApp: {
       getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }),
       getOAuthToken: () => 'TOKEN',
+      getScriptId: () => 'SCRIPT_ID',
       getProjectTriggers: () => triggers.slice(),
       deleteTrigger: t => { triggers.splice(triggers.indexOf(t), 1); },
       newTrigger(fn) {
         const t = { fn, every: null, getHandlerFunction: () => fn };
-        const b = { timeBased: () => b, everyHours: h => { t.every = h + 'h'; return b; }, everyDays: d => { t.every = d + 'd'; return b; }, create: () => { triggers.push(t); return t; } };
+        const b = { timeBased: () => b, everyHours: h => { t.every = h + 'h'; return b; }, everyDays: d => { t.every = d + 'd'; return b; },
+          atHour: h => { t.atHour = h; return b; }, create: () => { triggers.push(t); return t; } };
         return b;
       }
     },
@@ -119,6 +122,20 @@ function createEnv(opts) {
           const id = 'doc' + (++drive.n);
           drive.files[id] = raw.split('Content-Type: application/pdf\r\n\r\n')[1].split('\r\n--')[0];
           return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ id }) };
+        }
+        // Mise à jour : GitHub (branche stable) et API Apps Script.
+        if (url.indexOf('https://raw.githubusercontent.com/') === 0) {
+          const f = update.github[url.split('?')[0].replace(/^.*\/stable\//, '')];
+          return f === undefined ? { getResponseCode: () => 404, getContentText: () => '404' } : { getResponseCode: () => 200, getContentText: () => f };
+        }
+        if (url.indexOf('https://script.googleapis.com/v1') === 0) {
+          const call = { method: o.method || 'get', path: url.replace('https://script.googleapis.com/v1', ''), body: o.payload ? JSON.parse(o.payload) : null };
+          update.calls.push(call);
+          if (update.apiDisabled) return { getResponseCode: () => 403, getContentText: () => JSON.stringify({ error: { message: 'User has not enabled the Apps Script API. Enable it by visiting https://script.google.com/home/usersettings' } }) };
+          let res = {};
+          if (call.method === 'get' && /\/content$/.test(call.path)) res = { files: [{ name: 'Code2', type: 'SERVER_JS', source: '...' }, { name: 'appsscript', type: 'JSON', source: update.currentManifest }] };
+          if (call.method === 'post' && /\/versions$/.test(call.path)) res = { versionNumber: 7 };
+          return { getResponseCode: () => 200, getContentText: () => JSON.stringify(res) };
         }
         const dm = url.match(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/([^/?]+)(\/export)?/);
         if (dm) {
@@ -197,7 +214,7 @@ function createEnv(opts) {
   // Les objets passent par JSON comme avec google.script.run.
   const json = x => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
   return {
-    ctx, props, triggers, mails, fetchMap, gmail, logs, drive,
+    ctx, props, triggers, mails, fetchMap, gmail, logs, drive, update,
     api: (token, action, payload) => json(ctx.api(token, action, payload)),
     install: () => json(ctx.install()),
     sheet: name => { const ss = spreadsheets[props.sheetId]; return ss && ss.getSheetByName(name); }
