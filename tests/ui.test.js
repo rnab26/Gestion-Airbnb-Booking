@@ -95,7 +95,7 @@ async function main() {
   assert.ok(!(await page.isVisible('text=Pour des dates toujours à jour')));
   await shot(page, '04-planning');
   await page.click('#calNext'); await page.click('#calNext');
-  assert.match(await page.textContent('[data-day="2026-12-20"]'), /fermé/);
+  assert.match(await page.textContent('[data-day="2026-12-20"]'), /bloqué/);
   await shot(page, '04b-decembre-dates-fermees');
   await page.click('#calToday');
   // Détail d'un jour + ajout d'une note visible gestionnaire

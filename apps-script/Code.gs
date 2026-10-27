@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.1.3'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.2.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -28,7 +28,7 @@ var SHEET_INVOICES = 'FacturesBooking';
 var RES_COLS = ['id', 'key', 'source', 'origin', 'status', 'hidden', 'code', 'guest',
   'guestsText', 'guestsCount', 'checkin', 'checkout', 'amountNet', 'amountGross',
   'paidByGuest', 'keepRevenue', 'note', 'sharedNote', 'locked', 'emailId',
-  'createdAt', 'updatedAt', 'seenAt', 'autoStatus'];
+  'createdAt', 'updatedAt', 'seenAt', 'autoStatus', 'phone', 'location'];
 var NOTE_COLS = ['id', 'date', 'endDate', 'text', 'visible', 'author', 'createdAt', 'updatedAt'];
 var LOG_COLS = ['at', 'kind', 'ok', 'message'];
 var INVOICE_COLS = ['number', 'periodStart', 'periodEnd', 'sales', 'commission', 'paymentFees', 'total', 'emailId', 'readAt'];
@@ -50,6 +50,7 @@ var DEFAULT_SETTINGS = {
   managerLabel: 'Gestionnaire',
   managerShowGuestName: true,
   managerShowGuestCount: true,
+  managerShowPhone: false,
   managerCanAddNotes: true,
   managerPastDays: 30,
   autoUpdateEnabled: true,
@@ -60,7 +61,7 @@ var DEFAULT_SETTINGS = {
 var SYNC_HOURS_ALLOWED = [1, 2, 4, 6, 12, 24];
 // Champs qu'une modification à la main protège contre la synchronisation.
 var EDITABLE_RES_FIELDS = ['guest', 'guestsText', 'checkin', 'checkout', 'amountNet',
-  'amountGross', 'status', 'keepRevenue', 'note', 'sharedNote', 'source'];
+  'amountGross', 'status', 'keepRevenue', 'note', 'sharedNote', 'source', 'phone', 'location'];
 
 // =====================================================================
 // Pages web
@@ -235,7 +236,8 @@ function managerData_() {
         nights: nightsBetween_(r.checkin, r.checkout),
         guest: s.managerShowGuestName ? firstName_(r.guest) : '',
         guestsText: s.managerShowGuestCount ? (r.guestsText || (r.guestsCount ? r.guestsCount + ' voyageur(s)' : '')) : '',
-        sharedNote: r.sharedNote || ''
+        sharedNote: r.sharedNote || '',
+        phone: s.managerShowPhone ? (r.phone || '') : ''
       };
     });
   res.sort(function (a, b) { return a.checkin.localeCompare(b.checkin); });
@@ -290,6 +292,8 @@ function saveReservation_(p) {
       status: ['cancelled', 'blocked'].indexOf(p.status) >= 0 ? p.status : 'confirmed',
       keepRevenue: p.keepRevenue ? '1' : '',
       note: str_(p.note, 2000),
+      phone: str_(p.phone, 40).trim(),
+      location: str_(p.location, 80).trim(),
       sharedNote: str_(p.sharedNote, 2000),
       source: ['airbnb', 'booking', 'direct'].indexOf(p.source) >= 0 ? p.source : r.source
     };
@@ -435,6 +439,7 @@ function saveSettings_(p) {
   next.managerLabel = str_(p.managerLabel, 60).trim() || DEFAULT_SETTINGS.managerLabel;
   next.managerShowGuestName = !!p.managerShowGuestName;
   next.managerShowGuestCount = !!p.managerShowGuestCount;
+  next.managerShowPhone = !!p.managerShowPhone;
   next.managerCanAddNotes = !!p.managerCanAddNotes;
   var past = Number(p.managerPastDays);
   if (isNaN(past) || past < 0 || past > 365) throw new Error('Historique gestionnaire : entre 0 et 365 jours.');
@@ -608,6 +613,7 @@ function runSync_(kind) {
         ctx.errors.push('Calendrier ' + s[2] + ' : ' + e.message);
       }
     });
+    dropRedundantBlocks_(ctx);
     writeRows_(SHEET_RES, RES_COLS, ctx.rows);
   } finally {
     lock.releaseLock();
@@ -640,12 +646,22 @@ function applyIcs_(ctx, src, events) {
   events.forEach(function (ev) {
     if (!isYmd_(ev.start) || !isYmd_(ev.end) || ev.end <= ev.start) return;
     if (src === 'airbnb') {
-      if (/not available|indisponible|blocked|bloqu/i.test(ev.summary || '')) return;
+      if (/not available|indisponible|blocked|bloqu/i.test(ev.summary || '')) {
+        // Dates bloquées sur Airbnb (à la main, ou importées d'un autre calendrier) : affichées en gris.
+        var bkey = 'airbnb-block:' + ev.start + '_' + ev.end;
+        var b = upsert_(ctx, bkey, { source: 'airbnb', origin: 'ical', status: 'blocked' },
+          { checkin: ev.start, checkout: ev.end, status: 'blocked' });
+        b.seenAt = ctx.now;
+        seen[bkey] = true;
+        return;
+      }
       booked++;
       var m = ((ev.description || '') + ' ' + (ev.summary || '')).match(/\b(HM[A-Z0-9]{6,})\b/);
       var key = m ? 'airbnb:' + m[1] : 'airbnb-ical:' + (ev.uid || ev.start);
+      // L'iCal Airbnb donne les 4 derniers chiffres du téléphone du voyageur.
+      var last4 = (ev.description || '').match(/Last 4 Digits\)?\s*:\s*(\d{4})/i);
       var r = upsert_(ctx, key, { source: 'airbnb', origin: 'ical', status: 'confirmed' },
-        { code: m ? m[1] : '', checkin: ev.start, checkout: ev.end });
+        { code: m ? m[1] : '', checkin: ev.start, checkout: ev.end }, { phone: last4 ? '…' + last4[1] : '' });
       revive_(ctx, r);
       r.seenAt = ctx.now;
       seen[key] = true;
@@ -696,6 +712,20 @@ function applyIcs_(ctx, src, events) {
     delete ctx.byKey[r.key];
     ctx.counts.removed++;
     return false;
+  });
+}
+
+/**
+ * Une plateforme bloque les dates réservées sur l'autre (import croisé des calendriers) :
+ * ces blocages en double d'une vraie réservation ne sont pas gardés.
+ */
+function dropRedundantBlocks_(ctx) {
+  var active = ctx.rows.filter(isActive_);
+  ctx.rows = ctx.rows.filter(function (r) {
+    if (r.status !== 'blocked' || r.origin !== 'ical' || r.locked) return true;
+    var same = active.some(function (a) { return a.checkin === r.checkin && a.checkout === r.checkout; });
+    if (same) delete ctx.byKey[r.key];
+    return !same;
   });
 }
 
@@ -932,7 +962,7 @@ function handleAirbnbEmail_(ctx, m, ymd) {
     var p = parseAirbnbConfirmation_(m.subject, body, ymd);
     if (!p) { ctx.warnings.push('format Airbnb non reconnu : « ' + m.subject.slice(0, 60) + ' »'); return; }
     var r = upsert_(ctx, 'airbnb:' + p.code, { source: 'airbnb', origin: 'email', status: 'confirmed' }, {
-      code: p.code, guest: p.guest, guestsText: p.guestsText, guestsCount: p.guestsCount,
+      code: p.code, guest: p.guest, guestsText: p.guestsText, guestsCount: p.guestsCount, location: p.location,
       amountNet: p.amountNet, paidByGuest: p.paidByGuest, emailId: m.id
     }, { checkin: p.checkin, checkout: p.checkout });
     if (r.origin === 'ical') r.origin = 'email';
@@ -1025,7 +1055,7 @@ function parseAirbnbConfirmation_(subject, body, emailYmd) {
   var cm = text.match(/(?:CODE DE CONFIRMATION|CONFIRMATION CODE)\s*\n?\s*(HM[A-Z0-9]{6,})/i) ||
     text.match(/details\/(HM[A-Z0-9]{6,})/);
   if (!cm) return null;
-  var out = { code: cm[1], guest: sm[1].trim(), checkin: '', checkout: '', guestsText: '', guestsCount: '',
+  var out = { code: cm[1], guest: sm[1].trim(), checkin: '', checkout: '', guestsText: '', guestsCount: '', location: '',
     amountNet: '', paidByGuest: '' };
   var dm = text.match(/(?:Arriv[ée]e\s+D[ée]part|Check-?in\s+Check-?out)\s*\n+\s*([^\n]+)/i);
   if (dm) {
@@ -1035,6 +1065,9 @@ function parseAirbnbConfirmation_(subject, body, emailYmd) {
       out.checkout = inferDate_(d[1].day, d[1].month, d[1].year, out.checkin);
     }
   }
+  // Provenance indiquée par le voyageur (« Lyon, France »), juste après « Identité vérifiée · … ».
+  var lm = text.match(/(?:Identit[ée] v[ée]rifi[ée]e|Identity verified)[^\n]*\n\s*\n\s*([^\n]{3,60})\n/i);
+  if (lm && /^[A-ZÀ-ÝŁŚŻ][^,.!?:;@\d]{1,40}(?:, [A-ZÀ-ÝŁŚŻ][^,.!?:;@\d]{1,40})+$/.test(lm[1].trim())) out.location = lm[1].trim();
   var gm = text.match(/(?:^|\n)\s*(?:VOYAGEURS|GUESTS)\s*\n+\s*([^\n]+)/i);
   if (gm) {
     out.guestsText = gm[1].trim();

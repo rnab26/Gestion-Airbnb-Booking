@@ -6,12 +6,12 @@
 <style>
 :root{
   --bg:#f6f5f2;--card:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e4e2dc;--accent:#1f6f5c;--accent-ink:#fff;
-  --airbnb:#ff6b6b;--airbnb-soft:#ffe1e1;--booking:#3b6fd8;--booking-soft:#dde7fb;--direct:#2f9d6a;--direct-soft:#d9f1e5;
+  --airbnb:#e0383e;--airbnb-soft:#ffc4c6;--booking:#2f6fe0;--booking-soft:#c4d6ff;--direct:#2f9d6a;--direct-soft:#c9ecd9;--blocked:#d2d2d6;
   --warn:#b26a00;--warn-soft:#fff3dc;--err:#c0392b;--err-soft:#fde4e1;--ok:#2f9d6a;--radius:14px;
 }
 @media (prefers-color-scheme: dark){
   :root{--bg:#141416;--card:#1f1f23;--ink:#f1f1f3;--muted:#a0a0a8;--line:#33333a;--accent:#3fb394;--accent-ink:#0d1f1a;
-  --airbnb-soft:#4a2526;--booking-soft:#1f2c4a;--direct-soft:#1c3a2c;--warn-soft:#3d2e12;--err-soft:#47201c;}
+  --airbnb-soft:#6b2a2d;--booking-soft:#24385f;--direct-soft:#1c3a2c;--blocked:#46464c;--warn-soft:#3d2e12;--err-soft:#47201c;}
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
@@ -189,7 +189,7 @@ function notesOn(d) {
   return S.data.notes.filter(function (n) { return n.date <= d && d <= (n.endDate || n.date); });
 }
 function guestLabel(r) {
-  if (r.status === 'blocked') return 'Dates fermées (Booking)';
+  if (r.status === 'blocked') return 'Bloqué (' + (SRC[r.source] || 'manuel') + ')';
   if (r.guest) return r.guest;
   if (!isOwner()) return 'Voyageur';
   if (r.source === 'booking' && r.origin === 'ical') return 'Booking (sans e-mail)';
@@ -404,14 +404,14 @@ function calendarHtml() {
     var bg = (left === 'transparent' && right === 'transparent') ? '' :
       'background:linear-gradient(90deg,' + left + ' 0 50%,' + right + ' 50% 100%);border-color:transparent;';
     var closed = !night && blk.filter(function (r) { return occupies(r, d); })[0];
-    if (closed) bg = 'background:repeating-linear-gradient(135deg,var(--line) 0 4px,transparent 4px 9px);';
+    if (closed) bg = 'background:var(--blocked);border-color:transparent;';
     var lab = arr ? '<span class="lab" style="color:' + srcColor(arr.source) + '">▸ ' + esc(guestLabel(arr).split(' ')[0]) + '</span>'
-      : (dep && !night ? '<span class="lab muted">◂</span>' : (closed && (closed.checkin === d || d.slice(8) === '01') ? '<span class="lab muted">fermé</span>' : ''));
+      : (dep && !night ? '<span class="lab muted">◂</span>' : (closed && (closed.checkin === d || d.slice(8) === '01') ? '<span class="lab muted">bloqué</span>' : ''));
     var nn = notesOn(d).length;
     html += '<button class="day' + (monthOf(d) !== ym ? ' out' : '') + (d === S.data.today ? ' today' : '') + '" data-day="' + d + '" style="' + bg + '">' +
       '<span class="n">' + (+d.slice(8)) + '</span>' + lab + (nn ? '<span class="dot" title="' + nn + ' note(s)"></span>' : '') + '</button>';
   }
-  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb-soft)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking-soft)"></i>Booking</span><span><i class="sw" style="background:var(--direct-soft)"></i>Direct</span><span><i class="sw" style="background:repeating-linear-gradient(135deg,var(--line) 0 3px,transparent 3px 6px);border:1px solid var(--line)"></i>Fermé</span>'
+  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb-soft)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking-soft)"></i>Booking</span><span><i class="sw" style="background:var(--direct-soft)"></i>Direct</span><span><i class="sw" style="background:var(--blocked)"></i>Bloqué</span><span><i class="sw" style="border:1px solid var(--line)"></i>Libre</span>'
     : '<span><i class="sw" style="background:var(--booking-soft)"></i>Occupé</span>') +
     '<span><i class="sw" style="background:var(--warn);border-radius:50%"></i>Note</span><span>▸ arrivée</span><span>◂ départ</span></div>';
   return html;
@@ -428,7 +428,7 @@ function resCard(r, opts) {
   var badges = '';
   if (isOwner()) {
     badges += '<span class="badge ' + esc(r.source) + '">' + esc(SRC[r.source] || r.source) + '</span>';
-    if (r.status === 'blocked') badges += '<span class="badge">Pas une réservation : dates fermées sur Booking</span>';
+    if (r.status === 'blocked') badges += '<span class="badge">Pas une réservation : dates bloquées</span>';
     if (r.status === 'cancelled') badges += '<span class="badge err">' + (r.autoStatus === 'absent' ? 'Annulée (plus dans le calendrier)' : 'Annulée') + '</span>';
     if (r.hidden === '1') badges += '<span class="badge">Masquée</span>';
     if (r.missingAmount) badges += '<span class="badge warn">Montant à saisir</span>';
@@ -439,8 +439,10 @@ function resCard(r, opts) {
   var amt = isOwner() ? '<span class="amt">' + (r.net === null || !r.counted ? '' : (r.amountKind === 'facture' || r.amountKind === 'estimé' ? '≈ ' : '') + fmtMoney(r.net)) + '</span>' : '';
   var sub = fmtDate(r.checkin) + ' → ' + (r.checkout ? fmtDate(r.checkout) : '?') + (r.nights ? ' · ' + r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') +
     (r.guestsText ? ' · ' + esc(r.guestsText) : '');
+  var contact = [r.phone ? '📞 ' + esc(r.phone) : '', r.location ? '🌍 ' + esc(r.location) : ''].filter(Boolean).join(' · ');
   return '<button class="item" data-res="' + esc(r.id) + '"><span class="bar" style="background:' + srcColor(r.source) + '"></span><span class="main"><span class="spread"><span class="t">' +
     esc(guestLabel(r)) + '</span>' + amt + '</span><span class="small muted" style="display:block">' + sub + '</span>' +
+    (contact ? '<span class="small" style="display:block">' + contact + '</span>' : '') +
     (badges ? '<span style="display:block;margin-top:4px">' + badges + '</span>' : '') +
     (r.sharedNote && !opts.noShared ? '<span class="small" style="display:block;margin-top:4px">💬 ' + esc(r.sharedNote) + '</span>' : '') + '</span></button>';
 }
@@ -562,7 +564,7 @@ function viewResas() {
     return true;
   });
   if (S.resView === 'past' || S.resView === 'cancelled') list = list.slice().reverse();
-  var views = [['upcoming', 'À venir'], ['past', 'Passées'], ['all', 'Toutes'], ['missing', 'Montant à saisir'], ['cancelled', 'Annulées'], ['blocked', 'Dates fermées'], ['hidden', 'Masquées']];
+  var views = [['upcoming', 'À venir'], ['past', 'Passées'], ['all', 'Toutes'], ['missing', 'Montant à saisir'], ['cancelled', 'Annulées'], ['blocked', 'Bloquées'], ['hidden', 'Masquées']];
   var html = banners() + '<div class="row"><input type="text" id="resQ" placeholder="Rechercher…" value="' + esc(S.resQuery) + '" style="flex:1"><button class="btn primary" id="addRes2">+ Réservation</button></div>' +
     '<div class="seg" style="margin-top:10px">' + views.map(function (v) { return '<button data-view="' + v[0] + '" class="' + (S.resView === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>' +
     '<div class="seg" style="margin-top:6px">' + [['', 'Toutes plateformes'], ['airbnb', 'Airbnb'], ['booking', 'Booking'], ['direct', 'Direct']].map(function (v) {
@@ -596,6 +598,8 @@ function editReservation(r) {
   var originTxt = r.origin === 'email' ? 'Lue dans les e-mails ' + (SRC[src] || '') + (r.code ? ' · code ' + esc(r.code) : '')
     : r.origin === 'ical' ? 'Vue dans le calendrier ' + (SRC[src] || '') + ' (pas d\'e-mail correspondant)' : 'Saisie à la main';
   var html = '<div class="spread"><h3>' + (isNew ? 'Nouvelle réservation' : esc(guestLabel(r))) + '</h3><button class="btn ghost small" data-close>✕</button></div>' +
+    (r.phone && /\d{8,}/.test(r.phone.replace(/\D/g, '')) ? '<div class="row" style="margin:4px 0 8px"><a class="btn small" style="text-decoration:none" href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">📞 Appeler</a>' +
+      '<a class="btn small" style="text-decoration:none" target="_blank" href="https://wa.me/' + esc(r.phone.replace(/\D/g, '')) + '">WhatsApp</a></div>' : '') +
     (isNew ? '' : '<p class="small muted" style="margin-top:-4px">' + originTxt + (locked.filter(function (f) { return f !== 'hidden'; }).length ? ' · modifiée à la main' : '') + '</p>') +
     '<form id="resForm">' +
     (manual ? '<label class="f"><span>Plateforme</span><select name="source">' + ['direct', 'airbnb', 'booking'].map(function (k) { return '<option value="' + k + '"' + (src === k ? ' selected' : '') + '>' + (k === 'direct' ? 'Direct (sans plateforme)' : SRC[k]) + '</option>'; }).join('') + '</select></label>' : '') +
@@ -603,14 +607,18 @@ function editReservation(r) {
     '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Arrivée</span><input type="date" name="checkin" required value="' + esc(r.checkin || '') + '"></label>' +
     '<label class="f" style="flex:1"><span>Départ</span><input type="date" name="checkout" value="' + esc(r.checkout || '') + '"></label></div>' +
     '<label class="f"><span>Voyageurs</span><input type="text" name="guestsText" value="' + esc(r.guestsText || '') + '" placeholder="ex. 2 adultes, 1 enfant"></label>' +
+    '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Téléphone</span><input type="tel" name="phone" value="' + esc(r.phone || '') + '" placeholder="+33 6 …"></label>' +
+    '<label class="f" style="flex:1"><span>Provenance</span><input type="text" name="location" value="' + esc(r.location || '') + '" placeholder="Ville, pays"></label></div>' +
+    (r.source === 'airbnb' && /^…\d{4}$/.test(r.phone || '') ? '<p class="help">Airbnb ne donne que les 4 derniers chiffres : le numéro complet est dans l\'appli Airbnb (réservation › voyageur).</p>' : '') +
+    (r.source === 'booking' && !r.phone ? '<p class="help">Booking ne met ni téléphone ni pays dans ses e-mails : ils sont dans Pulse (réservation › coordonnées).</p>' : '') +
     '<label class="f"><span>' + (src === 'airbnb' ? 'Montant net reçu (« Vous gagnez »)' : 'Montant net reçu (optionnel si prix client rempli)') + '</span><input type="text" inputmode="decimal" name="amountNet" value="' + esc(r.amountNet || '') + '" placeholder="ex. 399,41"></label>' +
     (src !== 'airbnb' ? '<label class="f"><span>Prix payé par le client' + (src === 'booking' ? ' (net calculé avec ' + esc(String(S.data.booking.ratePct).replace('.', ',')) + ' % de commission)' : '') + '</span><input type="text" inputmode="decimal" name="amountGross" value="' + esc(r.amountGross || '') + '" placeholder="ex. 450"></label>' : '') +
     (r.paidByGuest ? '<p class="small muted">Le voyageur a payé ' + fmtMoney(+r.paidByGuest) + ' au total (taxes comprises).</p>' : '') +
     (r.amountKind === 'facture' ? '<p class="small muted">Montant affiché : ≈ ' + fmtMoney(r.net) + ', part de la facture Booking du mois de départ (net réel réparti au prorata des nuits). Saisis le montant exact pour le remplacer.</p>' : '') +
     (r.amountKind === 'estimé' ? '<p class="small muted">Montant affiché : ≈ ' + fmtMoney(r.net) + ', estimé (net moyen par nuit de tes factures Booking) en attendant la facture du mois.</p>' : '') +
     '<label class="f"><span>Statut</span><select name="status"><option value="confirmed"' + (r.status !== 'cancelled' && r.status !== 'blocked' ? ' selected' : '') + '>Confirmée</option><option value="cancelled"' + (r.status === 'cancelled' ? ' selected' : '') + '>Annulée</option>' +
-      '<option value="blocked"' + (r.status === 'blocked' ? ' selected' : '') + '>Dates fermées (pas une réservation)</option></select></label>' +
-    (r.status === 'blocked' ? '<p class="small muted">Booking a fermé ces dates sans e-mail de réservation : en général une fermeture. Si c\'est une vraie réservation, choisis « Confirmée ».</p>' : '') +
+      '<option value="blocked"' + (r.status === 'blocked' ? ' selected' : '') + '>Dates bloquées (pas une réservation)</option></select></label>' +
+    (r.status === 'blocked' ? '<p class="small muted">Dates bloquées sur ' + esc(SRC[r.source] || 'la plateforme') + ' sans e-mail de réservation : en général un blocage à la main. Si c\'est une vraie réservation, choisis « Confirmée ».</p>' : '') +
     '<label class="check" id="keepRow"' + (r.status === 'cancelled' ? '' : ' style="display:none"') + '><input type="checkbox" name="keepRevenue"' + (r.keepRevenue === '1' ? ' checked' : '') + '><span>Annulée mais payée quand même (compter le montant dans mes revenus)</span></label>' +
     '<label class="f"><span>Note pour la gestionnaire (visible sur sa page)</span><textarea name="sharedNote" placeholder="ex. arrivée tardive, lit bébé à préparer">' + esc(r.sharedNote || '') + '</textarea></label>' +
     '<label class="f"><span>Note privée (visible par toi seul)</span><textarea name="note">' + esc(r.note || '') + '</textarea></label>' +
@@ -629,7 +637,7 @@ function editReservation(r) {
       e.preventDefault();
       var fd = new FormData(f);
       var p = { id: r.id || '', source: fd.get('source') || src };
-      ['guest', 'checkin', 'checkout', 'guestsText', 'amountNet', 'amountGross', 'status', 'sharedNote', 'note'].forEach(function (k) { p[k] = fd.get(k) == null ? (r[k] || '') : fd.get(k); });
+      ['guest', 'checkin', 'checkout', 'guestsText', 'amountNet', 'amountGross', 'status', 'sharedNote', 'note', 'phone', 'location'].forEach(function (k) { p[k] = fd.get(k) == null ? (r[k] || '') : fd.get(k); });
       p.keepRevenue = !!fd.get('keepRevenue');
       if (!p.checkin) { toast('Indique la date d\'arrivée.', 'error'); return; }
       if (p.checkout && p.checkout <= p.checkin) { toast('Le départ doit être après l\'arrivée.', 'error'); return; }
@@ -738,6 +746,7 @@ function viewSettings() {
     '<div class="card"><h3>Page de la gestionnaire</h3><p class="help">Elle voit le planning, les arrivées/départs et les notes que tu rends visibles. Jamais tes montants (filtré sur le serveur).</p>' +
     '<label class="f"><span>Nom affiché</span><input type="text" name="managerLabel" value="' + esc(s.managerLabel) + '"></label>' +
     chk('managerShowGuestName', 'Montrer le prénom du voyageur') + chk('managerShowGuestCount', 'Montrer le nombre de voyageurs') +
+    chk('managerShowPhone', 'Montrer le téléphone du voyageur', 'Pratique pour organiser l\'arrivée.') +
     chk('managerCanAddNotes', 'Elle peut ajouter des notes', 'Ex. « plus de lessive ». Elle ne peut modifier que les siennes.') +
     '<label class="f"><span>Jours passés visibles</span><input type="number" min="0" max="365" name="managerPastDays" value="' + esc(s.managerPastDays) + '"></label>' +
     '<div class="linkbox" id="mgrLink">' + esc(d.managerUrl) + '</div><div class="row">' +
@@ -788,7 +797,7 @@ function bindSettings(root) {
     var p = {};
     ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
     p.syncEveryHours = +p.syncEveryHours;
-    ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerCanAddNotes', 'autoUpdateEnabled'].forEach(function (k) { p[k] = !!fd.get(k); });
+    ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerShowPhone', 'managerCanAddNotes', 'autoUpdateEnabled'].forEach(function (k) { p[k] = !!fd.get(k); });
     var before = S.data.settings;
     var icalChanged = p.icalAirbnb !== before.icalAirbnb || p.icalBooking !== before.icalBooking || (p.emailScanEnabled && !before.emailScanEnabled);
     act('saveSettings', p, 'Réglages enregistrés', $('#setSave')).then(function (ok) {
@@ -813,6 +822,7 @@ function renderManager(app) {
       '<div class="small">🟢 Arrivée ' + fmtDate(r.checkin) + ' à partir de ' + esc(s.checkinTime) + '</div>' +
       '<div class="small">🔴 Départ ' + (r.checkout ? fmtDate(r.checkout) + ' avant ' + esc(s.checkoutTime) : 'date à confirmer') + '</div>' +
       (r.guestsText ? '<div class="small muted">👥 ' + esc(r.guestsText) + '</div>' : '') +
+      (r.phone ? '<div class="small">📞 <a href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">' + esc(r.phone) + '</a></div>' : '') +
       (r.checkout ? '<div class="small" style="margin-top:6px"><b>🧹 Ménage ' + fmtDate(r.checkout) + ' après ' + esc(s.checkoutTime) + '</b>' +
         (next ? ' — <span style="color:var(--err)">nouvelle arrivée le même jour à ' + esc(s.checkinTime) + '</span>' : '') + '</div>' : '') +
       (r.sharedNote ? '<div class="small" style="margin-top:6px">💬 ' + esc(r.sharedNote) + '</div>' : '') + '</div>';

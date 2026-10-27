@@ -28,7 +28,7 @@ test('Airbnb : e-mail de confirmation réel → code, voyageur, dates, net, tota
   const m = messages[0];
   const p = ctx.parseAirbnbConfirmation_(m.subject, m.body, '2026-09-09');
   assert.deepEqual(JSON.parse(JSON.stringify(p)), { code: 'HMTEST0001', guest: 'Jean Dupont', checkin: '2026-10-25', checkout: '2026-10-29',
-    guestsText: '3 adultes', guestsCount: '3', amountNet: '412.3', paidByGuest: '590' });
+    guestsText: '3 adultes', guestsCount: '3', location: '', amountNet: '412.3', paidByGuest: '590' });
   const p2 = ctx.parseAirbnbConfirmation_(messages[1].subject, messages[1].body, '2026-05-11');
   assert.equal(p2.guestsCount, '3');
   assert.equal(p2.checkout, '2026-06-02');
@@ -120,7 +120,7 @@ test('Accès : mauvais lien refusé, gestionnaire limitée à ses actions', () =
 test('Synchro complète : e-mails + iCal fusionnés correctement', () => {
   const { data } = setup();
   const keys = data.reservations.map(r => r.key).sort();
-  assert.deepEqual(keys, ['airbnb:HMTEST0001', 'airbnb:HMTEST0002', 'airbnb:HMTEST0003', 'airbnb:HMTEST0004',
+  assert.deepEqual(keys, ['airbnb-block:2026-11-25_2026-11-27', 'airbnb:HMTEST0001', 'airbnb:HMTEST0002', 'airbnb:HMTEST0003', 'airbnb:HMTEST0004',
     'booking-ical:2026-12-20_2026-12-23', 'booking-ical:2027-01-05_2027-10-22', 'booking:7100000001', 'booking:7100000002', 'booking:7100000003']);
   const a1 = byKey(data, 'airbnb:HMTEST0001');
   assert.equal(a1.net, 412.3);
@@ -136,8 +136,9 @@ test('Synchro complète : e-mails + iCal fusionnés correctement', () => {
   assert.equal(byKey(data, 'booking:7100000003').checkout, '2026-11-18');
   assert.ok(data.lastSync.ok, data.lastSync.message);
   assert.deepEqual(data.overlaps, []);
-  // Les dates « Not available » et les dates Airbnb réimportées dans Booking ne créent rien.
-  assert.ok(!data.reservations.some(r => r.checkin === '2026-11-25'));
+  // « Not available » Airbnb = dates bloquées (gris) ; dates Airbnb réimportées dans Booking : rien de plus.
+  assert.equal(data.reservations.filter(r => r.checkin === '2026-11-25').map(r => r.status).join(), 'blocked');
+  assert.equal(data.reservations.filter(r => r.checkin === '2026-10-25').length, 1);
 });
 
 test('Synchro relancée : rien ne change (idempotente)', () => {
@@ -656,4 +657,37 @@ test('Mise à niveau : e-mails marqués lus par une ancienne version relus une f
   assert.equal(byKey(d, 'airbnb:HMTEST0001').net, 412.3, 'relu malgré l’ancienne liste');
   d = env.api(owner, 'sync');
   assert.match(d.lastSync.message, /0 e-mail\(s\) lu\(s\)/, 'pas de relecture à chaque fois');
+});
+
+test('Airbnb : provenance du voyageur et 4 derniers chiffres du téléphone', () => {
+  const { ctx } = createEnv();
+  const body = messages[0].body.replace('Identité vérifiée · 2 commentaires\n\nBonjour', 'Identité vérifiée · 2 commentaires\n\nLyon, France\n\nBonjour');
+  assert.equal(ctx.parseAirbnbConfirmation_(messages[0].subject, body, '2026-09-09').location, 'Lyon, France');
+  assert.equal(ctx.parseAirbnbConfirmation_(messages[0].subject, messages[0].body, '2026-09-09').location, '', 'message du voyageur ignoré');
+  const msg2 = messages[0].body.replace('Identité vérifiée · 2 commentaires\n\nBonjour', 'Identité vérifiée · 2 commentaires\n\nBonjour, à bientôt');
+  assert.equal(ctx.parseAirbnbConfirmation_(messages[0].subject, msg2, '2026-09-09').location, '');
+  const { data } = setup();
+  assert.equal(byKey(data, 'airbnb:HMTEST0004').phone, '…9876', 'iCal Airbnb');
+});
+
+test('Dates bloquées Airbnb en gris ; blocage en double d’une réservation supprimé ; téléphone modifiable', () => {
+  const { env, owner, manager, data } = setup();
+  const blk = byKey(data, 'airbnb-block:2026-11-25_2026-11-27');
+  assert.equal(blk.status, 'blocked');
+  assert.equal(blk.counted, false);
+  env.fetchMap[AIRBNB_URL] = { body: airbnbIcs(['BEGIN:VEVENT', 'DTEND;VALUE=DATE:20261107', 'DTSTART;VALUE=DATE:20261104', 'UID:imp@airbnb.com', 'SUMMARY:Airbnb (Not available)', 'END:VEVENT']) };
+  let d = env.api(owner, 'sync');
+  assert.ok(!byKey(d, 'airbnb-block:2026-11-04_2026-11-07'), 'réservation Booking importée dans Airbnb : pas de doublon gris');
+  const r = byKey(d, 'booking:7100000001');
+  d = env.api(owner, 'saveReservation', Object.assign({}, r, { phone: '+33 6 12 34 56 78', location: 'Madrid, Espagne', guest: 'Ana Lopez' }));
+  const r2 = byKey(d, 'booking:7100000001');
+  assert.equal(r2.phone, '+33 6 12 34 56 78');
+  assert.equal(r2.location, 'Madrid, Espagne');
+  d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'booking:7100000001').phone, '+33 6 12 34 56 78', 'gardé à la synchro');
+  let m = env.api(manager, 'load');
+  assert.ok(!JSON.stringify(m).includes('12 34 56'), 'téléphone masqué à la gestionnaire par défaut');
+  env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerShowPhone: true }));
+  m = env.api(manager, 'load');
+  assert.equal(m.reservations.find(x => x.checkin === '2026-11-04').phone, '+33 6 12 34 56 78');
 });
