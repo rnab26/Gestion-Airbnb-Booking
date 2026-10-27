@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.2.2'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.3.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -157,6 +157,8 @@ var OWNER_ACTIONS = {
   deleteNote: function (p) { deleteNote_(p.id, 'owner'); return ownerData_(); },
   saveSettings: function (p) { saveSettings_(p); return ownerData_(); },
   checkUpdate: function () { checkUpdate_(true); return ownerData_(); },
+  setUpdaterCreds: function (p) { setUpdaterCreds_(p); return ownerData_(); },
+  clearUpdaterCreds: function () { PropertiesService.getScriptProperties().deleteProperty('updaterCreds'); return ownerData_(); },
   regenerateManagerLink: function () {
     PropertiesService.getScriptProperties().setProperty('managerToken', newToken_());
     return ownerData_();
@@ -217,6 +219,7 @@ function ownerData_() {
     sheetUrl: db_().getUrl(),
     version: APP_VERSION,
     lastUpdate: JSON.parse(props.getProperty('lastUpdate') || 'null'),
+    updaterReady: !!props.getProperty('updaterCreds'),
     authUrl: pendingAuthUrl_()
   };
 }
@@ -549,8 +552,10 @@ function checkUpdate_(manual) {
   } catch (e) {
     status.ok = false;
     var msg = String(e && e.message || e);
-    status.message = /has not been used|disabled|not enabled|SERVICE_DISABLED|User has not enabled/i.test(msg)
+    status.message = /User has not enabled the Apps Script API/i.test(msg)
       ? 'Active « API Google Apps Script » sur https://script.google.com/home/usersettings (une seule fois) pour les mises à jour automatiques.'
+      : /has not been used in project|SERVICE_DISABLED|it is disabled/i.test(msg)
+        ? 'Mises à jour automatiques pas encore activées (accès de mise à jour à installer par Claude).'
       : /insufficient authentication scopes|insufficientPermissions/i.test(msg)
         ? 'Autorisation Google manquante pour les mises à jour automatiques : touche « Autoriser » en haut de l\'écran (une seule fois).'
         : 'Mise à jour impossible : ' + msg;
@@ -578,8 +583,36 @@ function checkSyntax_(code) {
   }
 }
 
+/**
+ * Jeton pour l'API Apps Script. Le projet Google par défaut d'un script ne peut pas
+ * activer cette API (documentation Google) : on utilise l'accès « clasp » limité aux
+ * scripts que le propriétaire a accordé, rangé dans les propriétés privées du script
+ * (jamais dans le code). Sans lui, on tente le jeton du script.
+ */
+function updaterToken_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('updaterCreds');
+  if (!raw) return ScriptApp.getOAuthToken();
+  var c = JSON.parse(raw);
+  var r = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
+    method: 'post', muteHttpExceptions: true,
+    payload: { client_id: c.client_id, client_secret: c.client_secret, refresh_token: c.refresh_token, grant_type: 'refresh_token' }
+  });
+  if (r.getResponseCode() !== 200) {
+    throw new Error('accès de mise à jour refusé par Google (' + r.getResponseCode() + ' ' + apiErrorText_(r.getContentText()) + ') : il a peut-être été retiré du compte');
+  }
+  return JSON.parse(r.getContentText()).access_token;
+}
+
+function setUpdaterCreds_(p) {
+  var c = { client_id: str_(p.client_id, 200).trim(), client_secret: str_(p.client_secret, 200).trim(), refresh_token: str_(p.refresh_token, 600).trim() };
+  if (!/\.apps\.googleusercontent\.com$/.test(c.client_id) || !c.client_secret || !/^1\/\/[\w-]+$/.test(c.refresh_token)) {
+    throw new Error('Accès de mise à jour invalide.');
+  }
+  PropertiesService.getScriptProperties().setProperty('updaterCreds', JSON.stringify(c));
+}
+
 function scriptApi_(method, path, body) {
-  var o = { method: method, muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } };
+  var o = { method: method, muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + updaterToken_() } };
   if (body) { o.contentType = 'application/json'; o.payload = JSON.stringify(body); }
   var r = UrlFetchApp.fetch('https://script.googleapis.com/v1' + path, o);
   var text = r.getContentText();

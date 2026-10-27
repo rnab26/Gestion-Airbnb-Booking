@@ -133,13 +133,19 @@ function createEnv(opts) {
           drive.files[id] = raw.split('Content-Type: application/pdf\r\n\r\n')[1].split('\r\n--')[0];
           return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ id }) };
         }
+        if (url === 'https://oauth2.googleapis.com/token') {
+          update.tokenCalls = (update.tokenCalls || 0) + 1;
+          if (update.tokenRevoked) return { getResponseCode: () => 400, getContentText: () => JSON.stringify({ error: { message: 'Token has been expired or revoked.' } }) };
+          return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ access_token: 'CLASP_TOKEN' }) };
+        }
         // Mise à jour : GitHub (branche stable) et API Apps Script.
         if (url.indexOf('https://raw.githubusercontent.com/') === 0) {
           const f = update.github[url.split('?')[0].replace(/^.*\/stable\//, '')];
           return f === undefined ? { getResponseCode: () => 404, getContentText: () => '404' } : { getResponseCode: () => 200, getContentText: () => f };
         }
         if (url.indexOf('https://script.googleapis.com/v1') === 0) {
-          const call = { method: o.method || 'get', path: url.replace('https://script.googleapis.com/v1', ''), body: o.payload ? JSON.parse(o.payload) : null };
+          const call = { method: o.method || 'get', path: url.replace('https://script.googleapis.com/v1', ''), body: o.payload ? JSON.parse(o.payload) : null, auth: o.headers.Authorization };
+          if (update.projectApiOff && call.auth === 'Bearer TOKEN') return { getResponseCode: () => 403, getContentText: () => JSON.stringify({ error: { message: 'Apps Script API has not been used in project 550380280550 before or it is disabled.' } }) };
           update.calls.push(call);
           if (update.noScope) return { getResponseCode: () => 403, getContentText: () => JSON.stringify({ error: { message: 'Request had insufficient authentication scopes.' } }) };
           if (update.apiDisabled) return { getResponseCode: () => 403, getContentText: () => JSON.stringify({ error: { message: 'User has not enabled the Apps Script API. Enable it by visiting https://script.google.com/home/usersettings' } }) };

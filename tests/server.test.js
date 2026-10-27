@@ -717,3 +717,22 @@ test('Booking sans départ connu : montant estimé à la moyenne par séjour, nu
   assert.equal(r.net, 407.5, '815 € / 2 séjours facturés');
   assert.equal(d.stats['2027'].total.staysWithoutNights, 1);
 });
+
+test('Mise à jour via l’accès clasp rangé dans les propriétés (API désactivée sur le projet par défaut)', () => {
+  const { env, owner, manager } = updateEnv('9.9.9');
+  env.update.projectApiOff = true;
+  assert.throws(() => env.api(owner, 'checkUpdate'), /pas encore activées/);
+  assert.throws(() => env.api(owner, 'setUpdaterCreds', { client_id: 'x', client_secret: 'y', refresh_token: 'z' }), /invalide/);
+  assert.throws(() => env.api(manager, 'setUpdaterCreds', {}), /Action non autorisée/);
+  let d = env.api(owner, 'setUpdaterCreds', { client_id: '123-abc.apps.googleusercontent.com', client_secret: 'GOCSPX-test', refresh_token: '1//0abc-DEF_ghi' });
+  assert.equal(d.updaterReady, true);
+  assert.ok(!JSON.stringify(d).includes('1//0abc'), 'le jeton ne revient jamais à l’écran');
+  env.update.calls = [];
+  d = env.api(owner, 'checkUpdate');
+  assert.match(d.lastUpdate.message, /→ 9\.9\.9/);
+  assert.ok(env.update.calls.every(c => c.auth === 'Bearer CLASP_TOKEN'));
+  env.update.tokenRevoked = true;
+  assert.throws(() => env.api(owner, 'checkUpdate'), /retiré du compte/);
+  d = env.api(owner, 'clearUpdaterCreds');
+  assert.equal(d.updaterReady, false);
+});
