@@ -633,3 +633,27 @@ test('Corps d’e-mail en octets (service avancé réel) ou en base64 sans rempl
     assert.equal(byKey(d, 'airbnb:HMTEST0001').net, 412.3, b64 ? 'base64' : 'octets');
   }
 });
+
+test('E-mail en erreur : pas marqué comme lu, relu à la synchro suivante', () => {
+  const { env, owner } = setup({ noSync: true, withIcal: false });
+  const realGet = env.ctx.Gmail.Users.Messages.get;
+  let fail = true;
+  env.ctx.Gmail.Users.Messages.get = function (u, id, o) {
+    if (fail && id === 'a1' && o.format === 'full') throw new Error('Impossible de décoder la chaîne.');
+    return realGet.apply(this, arguments);
+  };
+  let d = env.api(owner, 'sync');
+  assert.ok(!byKey(d, 'airbnb:HMTEST0001'));
+  fail = false;
+  d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'airbnb:HMTEST0001').net, 412.3);
+});
+
+test('Mise à niveau : e-mails marqués lus par une ancienne version relus une fois', () => {
+  const { env, owner } = setup({ noSync: true, withIcal: false });
+  env.ctx.writeRows_('_emails_lus', ['id'], env.gmail.messages.map(m => ({ id: m.id })));
+  let d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'airbnb:HMTEST0001').net, 412.3, 'relu malgré l’ancienne liste');
+  d = env.api(owner, 'sync');
+  assert.match(d.lastSync.message, /0 e-mail\(s\) lu\(s\)/, 'pas de relecture à chaque fois');
+});
