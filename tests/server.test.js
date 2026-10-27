@@ -736,3 +736,20 @@ test('Mise à jour via l’accès clasp rangé dans les propriétés (API désac
   d = env.api(owner, 'clearUpdaterCreds');
   assert.equal(d.updaterReady, false);
 });
+
+test('Booking : message du client → nom, arrivée et départ (séjour passé hors calendrier)', () => {
+  const { ctx } = createEnv();
+  const { GUEST_MSG } = require('./fixtures/emails');
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.parseBookingGuestMessage_(GUEST_MSG))),
+    { number: '7100000001', guest: 'ANA LOPEZ', checkin: '2026-11-04', checkout: '2026-11-07' });
+  const { env, owner } = setup({ noSync: true, withIcal: false });
+  env.gmail.messages.push({ id: 'g1', from: '7100000099-abcd@guest.booking.com', date: '2026-05-01T10:00:00Z',
+    subject: 'WANDAS KRZYSZTOF nous a envoyé ce message',
+    body: GUEST_MSG.replace(/7100000001/g, '7100000099').replace(/ANA LOPEZ/g, 'WANDAS KRZYSZTOF').replace('mercredi 4 novembre 2026', 'mercredi 6 mai 2026').replace('samedi 7 novembre 2026', 'samedi 9 mai 2026') });
+  const d = env.api(owner, 'sync');
+  const r = byKey(d, 'booking:7100000099');
+  assert.equal(r.guest, 'WANDAS KRZYSZTOF');
+  assert.equal(r.checkin, '2026-05-06');
+  assert.equal(r.checkout, '2026-05-09');
+  assert.equal(r.nights, 3);
+});
