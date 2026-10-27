@@ -623,3 +623,13 @@ test('Mise à jour auto : déclencheur quotidien posé, désactivable, réservé
   env.ctx.autoUpdate();
   assert.ok(env.update.calls.some(c => /deployments/.test(c.path)));
 });
+
+test('Corps d’e-mail en octets (service avancé réel) ou en base64 sans remplissage : lus tous les deux', () => {
+  for (const b64 of [false, true]) {
+    const { env, owner } = setup({ noSync: true, withIcal: false });
+    env.gmail.base64Bodies = b64;
+    const d = env.api(owner, 'sync');
+    assert.ok(!/décoder/.test(d.lastSync.message), d.lastSync.message);
+    assert.equal(byKey(d, 'airbnb:HMTEST0001').net, 412.3, b64 ? 'base64' : 'octets');
+  }
+});

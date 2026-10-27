@@ -59,5 +59,6 @@ Raphaël a donné (27 oct. 2026) tous les accès : commits, merges dans main, Gi
 - [x] Liens iCal réels testés (27 oct.) : l'export Booking mêle réservations et dates fermées → statut « blocked »
 - [ ] À valider sur ses vraies données : lecture des factures
 - [x] Mise à jour automatique (décision de Raphaël, 27 oct. : « tout automatique ») : chaque nuit, l'outil installe `dist/Code-complet.gs` de la branche `stable` (avancée par `.github/workflows/tests.yml` seulement si les tests passent), via l'API Apps Script ; refuse toute version qui demande de nouveaux accès Google
-- [ ] Raphaël : un dernier collage (page copier.html) + activer l'API Apps Script (script.google.com/home/usersettings) ; ensuite plus rien
+- [x] 27 oct. soir : v1.1.0 puis v1.1.1 installées par Claude via l'API Apps Script (accès clasp limité script.projects + script.deployments, donné par Raphaël) ; projet « Gestion location », déploiement Web AKfycbyYaDGa9…
+- [x] Bug réel corrigé (1.1.1) : le service avancé Gmail renvoie les corps en octets, pas en base64 → « Impossible de décoder la chaîne »
 - [ ] Idées non faites : dépenses (ménage, charges), export comptable, flux iCal pour la gestionnaire
