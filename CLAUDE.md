@@ -55,9 +55,10 @@ Raphaël a donné (27 oct. 2026) tous les accès : commits, merges dans main, Gi
 - [x] Synchro robuste : annulation/changement de dates sans e-mail (absence du calendrier), retour auto
 - [x] Application installable : `docs/` (manifest + service worker + cadre vers Apps Script, `?k=` passé en #)
 - [x] GitHub Pages actif (27 oct.) : branche `gh-pages`, mise à jour par `.github/workflows/pages.yml` depuis `docs/` sur main
-- [ ] Installation dans le compte Google de Raphaël (copier-coller, voir README ; connecteur Drive en panne le 27 oct.)
+- [x] Installé chez Raphaël (projet Apps Script « Gestion location », id 1hA9RPoVVSAHGEheOkHj1ySMQh-KWAqQWhwKYTPrf7o-6PCzgyCUUvHFT, déploiement Web AKfycbyYaDGa9…) ; v1.1.3 déployée le 27 oct. au soir, l'accès clasp temporaire a été supprimé du conteneur
 - [x] Liens iCal réels testés (27 oct.) : l'export Booking mêle réservations et dates fermées → statut « blocked »
-- [ ] À valider sur ses vraies données : lecture des factures
+- [x] Vérifié en réel (27 oct.) : e-mails Airbnb lus (montants), 27 factures Booking lues (juillet = 2 360 − 437,13 = 1 923 €, identique au PDF), taux réel 17,85 %
+- [ ] Ouvert : nuits Booking passées inconnues (l'e-mail ne donne que l'arrivée, l'iCal seulement le futur) → « Nuits louées » et « net moyen / nuit » faussés ; 1 facture illisible (Invoice 1623733339) ; relecture complète des e-mails en cours (300 par synchro)
 - [x] Mise à jour automatique (décision de Raphaël, 27 oct. : « tout automatique ») : chaque nuit, l'outil installe `dist/Code-complet.gs` de la branche `stable` (avancée par `.github/workflows/tests.yml` seulement si les tests passent), via l'API Apps Script ; refuse toute version qui demande de nouveaux accès Google
 - [x] 27 oct. soir : v1.1.0 puis v1.1.1 installées par Claude via l'API Apps Script (accès clasp limité script.projects + script.deployments, donné par Raphaël) ; projet « Gestion location », déploiement Web AKfycbyYaDGa9…
 - [x] Bug réel corrigé (1.1.1) : le service avancé Gmail renvoie les corps en octets, pas en base64 → « Impossible de décoder la chaîne »
