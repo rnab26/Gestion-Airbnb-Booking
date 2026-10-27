@@ -768,6 +768,7 @@ function viewSettings() {
     '<div class="card"><h3>Mises à jour</h3>' +
     chk('autoUpdateEnabled', 'Mettre à jour l\'outil automatiquement (chaque nuit)', 'Seulement les versions qui ont passé tous les tests. Jamais de nouvel accès Google sans ton accord.') +
     '<p class="small">Version ' + esc(d.version) + (d.lastUpdate ? ' — dernière vérification ' + esc(ago(d.lastUpdate.at)) + ' : ' + (d.lastUpdate.ok ? '' : '⚠ ') + linkify(d.lastUpdate.message) : '') + '</p>' +
+    '<p class="small">' + (d.updaterReady ? '✓ Accès de mise à jour installé.' : 'Accès de mise à jour pas encore installé.') + '</p>' +
     '<button type="button" class="btn small" id="updBtn">Vérifier maintenant</button></div>' +
     '<div class="card"><h3>Mes données</h3><p class="help">Tout est stocké dans un Google Sheet de ton Drive (export, sauvegarde, filtres…).</p>' +
     '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.sheetUrl) + '">Ouvrir le Google Sheet</a>' +
