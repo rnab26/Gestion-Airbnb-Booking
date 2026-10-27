@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.1.2'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.1.3'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -897,28 +897,33 @@ function findPdfPart_(part) {
   return null;
 }
 
-/** Texte d'un PDF via la conversion Google Drive (fichier temporaire supprimé aussitôt). */
+/**
+ * Texte d'un PDF via la conversion Google Drive (fichier temporaire supprimé aussitôt).
+ * Création par le service avancé Drive : il active l'API Drive du projet Apps Script
+ * (sans lui, Google répondait 403 sur le compte de Raphaël).
+ */
 function pdfToText_(bytes, name) {
-  var token = ScriptApp.getOAuthToken();
-  var auth = { Authorization: 'Bearer ' + token };
-  var boundary = 'gl' + Utilities.getUuid().replace(/-/g, '');
-  var meta = JSON.stringify({ name: 'tmp-' + name, mimeType: 'application/vnd.google-apps.document' });
-  var payload = Utilities.newBlob('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
-    '\r\n--' + boundary + '\r\nContent-Type: application/pdf\r\n\r\n').getBytes()
-    .concat(bytes)
-    .concat(Utilities.newBlob('\r\n--' + boundary + '--').getBytes());
-  var up = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-    method: 'post', contentType: 'multipart/related; boundary=' + boundary, payload: payload, headers: auth, muteHttpExceptions: true
-  });
-  if (up.getResponseCode() !== 200) throw new Error('conversion du PDF refusée (' + up.getResponseCode() + ')');
-  var id = JSON.parse(up.getContentText()).id;
+  var auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+  var id;
+  try {
+    id = Drive.Files.create({ name: 'tmp-' + name, mimeType: 'application/vnd.google-apps.document' },
+      Utilities.newBlob(bytes, 'application/pdf', name), { fields: 'id' }).id;
+  } catch (e) {
+    throw new Error('conversion du PDF refusée : ' + String(e && e.message || e).slice(0, 160));
+  }
   try {
     var ex = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id + '/export?mimeType=text%2Fplain', { headers: auth, muteHttpExceptions: true });
-    if (ex.getResponseCode() !== 200) throw new Error('lecture du PDF converti impossible (' + ex.getResponseCode() + ')');
+    if (ex.getResponseCode() !== 200) throw new Error('lecture du PDF converti impossible (' + ex.getResponseCode() + ' ' + apiErrorText_(ex.getContentText()) + ')');
     return ex.getContentText();
   } finally {
-    UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id, { method: 'delete', headers: auth, muteHttpExceptions: true });
+    try { Drive.Files.remove(id); } catch (e) {
+      UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id, { method: 'delete', headers: auth, muteHttpExceptions: true });
+    }
   }
+}
+
+function apiErrorText_(text) {
+  try { return JSON.parse(text).error.message.slice(0, 160); } catch (e) { return String(text || '').slice(0, 160); }
 }
 
 function handleAirbnbEmail_(ctx, m, ymd) {

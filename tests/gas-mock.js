@@ -94,7 +94,7 @@ function createEnv(opts) {
       },
       newBlob: x => ({
         getDataAsString: () => Buffer.from(x).toString('utf8'),
-        getBytes: () => Array.from(Buffer.from(x, 'utf8'))
+        getBytes: () => Array.from(typeof x === 'string' ? Buffer.from(x, 'utf8') : Buffer.from(x))
       })
     },
     Session: {
@@ -150,6 +150,18 @@ function createEnv(opts) {
         if (!f) return { getResponseCode: () => 404, getContentText: () => 'Not found' };
         const r = typeof f === 'function' ? f() : f;
         return { getResponseCode: () => r.code || 200, getContentText: () => r.body };
+      }
+    },
+    Drive: {
+      Files: {
+        create(resource, blob) {
+          if (drive.fail) throw new Error('Drive refuse');
+          if (resource.mimeType !== 'application/vnd.google-apps.document') throw new Error('conversion attendue');
+          const id = 'doc' + (++drive.n);
+          drive.files[id] = Buffer.from(blob.getBytes()).toString('utf8');
+          return { id };
+        },
+        remove(id) { delete drive.files[id]; drive.deleted++; }
       }
     },
     Gmail: {
