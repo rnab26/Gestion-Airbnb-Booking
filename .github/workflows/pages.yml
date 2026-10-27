@@ -1,0 +1,27 @@
+# Publie docs/ (application installable) sur la branche gh-pages servie par GitHub Pages.
+name: Publier l'application installable
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copier docs/ vers gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898+github-actions[bot]@users.noreply.github.com"
+          cp -r docs /tmp/site
+          git fetch origin gh-pages
+          git checkout gh-pages
+          git rm -rq . || true
+          cp -r /tmp/site/. .
+          git add -A
+          git diff --cached --quiet && echo "Rien à publier" && exit 0
+          git commit -m "Publication de docs/ (${GITHUB_SHA::7})"
+          git push origin gh-pages

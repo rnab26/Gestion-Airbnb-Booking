@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+:root{
+  --bg:#f6f5f2;--card:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e4e2dc;--accent:#1f6f5c;--accent-ink:#fff;
+  --airbnb:#ff6b6b;--airbnb-soft:#ffe1e1;--booking:#3b6fd8;--booking-soft:#dde7fb;--direct:#2f9d6a;--direct-soft:#d9f1e5;
+  --warn:#b26a00;--warn-soft:#fff3dc;--err:#c0392b;--err-soft:#fde4e1;--ok:#2f9d6a;--radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#141416;--card:#1f1f23;--ink:#f1f1f3;--muted:#a0a0a8;--line:#33333a;--accent:#3fb394;--accent-ink:#0d1f1a;
+  --airbnb-soft:#4a2526;--booking-soft:#1f2c4a;--direct-soft:#1c3a2c;--warn-soft:#3d2e12;--err-soft:#47201c;}
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:760px;margin:0 auto;padding:12px 16px 96px}
+header.top{display:flex;align-items:center;gap:10px;padding:14px 16px 6px;max-width:760px;margin:0 auto}
+header.top h1{font-size:19px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.err{color:var(--err);border-color:var(--err)}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:10px 14px;cursor:pointer;min-height:42px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.danger{color:var(--err);border-color:var(--err)}
+.btn.ghost{background:transparent;border-color:transparent}
+.btn.small{padding:6px 10px;min-height:34px;font-size:13px}
+.btn[disabled]{opacity:.55;cursor:default}
+.icon-btn{border:1px solid var(--line);background:var(--card);border-radius:10px;width:42px;height:42px;cursor:pointer;font-size:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:10px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spread{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+h2{font-size:17px;margin:18px 0 8px}
+h3{font-size:15px;margin:0 0 8px}
+.banner{border-radius:12px;padding:12px 14px;margin:10px 0;font-size:14px}
+.banner.info{background:var(--booking-soft)}
+.banner.warn{background:var(--warn-soft)}
+.banner.err{background:var(--err-soft)}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:center;z-index:5;padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs button{flex:1;max-width:150px;border:0;background:none;padding:9px 2px 10px;font-size:11.5px;color:var(--muted);cursor:pointer}
+nav.tabs button .ic{display:block;font-size:19px;line-height:1.2}
+nav.tabs button.on{color:var(--accent);font-weight:600}
+/* calendrier */
+.cal-head{display:flex;align-items:center;gap:6px;margin:6px 0}
+.cal-head .title{flex:1;text-align:center;font-weight:600;text-transform:capitalize}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal .dow{font-size:11px;text-align:center;color:var(--muted);padding:2px 0}
+.cal .day{min-height:58px;border-radius:8px;background:var(--card);border:1px solid var(--line);padding:3px 4px;font-size:11px;cursor:pointer;position:relative;overflow:hidden;text-align:left}
+.cal .day.out{opacity:.35}
+.cal .day.today{outline:2px solid var(--accent);outline-offset:-2px}
+.cal .day .n{font-weight:600;font-size:12px;position:relative}
+.cal .day .lab{position:relative;display:block;font-size:10.5px;line-height:1.2;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.cal .day .dot{position:absolute;right:4px;top:4px;width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 0}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+/* listes */
+.item{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);margin:8px 0;cursor:pointer;width:100%;text-align:left}
+.item .bar{width:5px;align-self:stretch;border-radius:4px;flex:none}
+.item .main{flex:1;min-width:0}
+.item .t{font-weight:600}
+.item .amt{font-weight:700;white-space:nowrap}
+.badge{display:inline-block;font-size:11px;padding:2px 7px;border-radius:999px;background:var(--bg);border:1px solid var(--line);color:var(--muted);margin-right:4px}
+.badge.airbnb{background:var(--airbnb-soft);border-color:transparent;color:var(--ink)}
+.badge.booking{background:var(--booking-soft);border-color:transparent;color:var(--ink)}
+.badge.direct{background:var(--direct-soft);border-color:transparent;color:var(--ink)}
+.badge.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+.badge.err{background:var(--err-soft);border-color:transparent;color:var(--err)}
+.empty{text-align:center;color:var(--muted);padding:26px 10px}
+/* revenus */
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+@media(min-width:620px){.kpis{grid-template-columns:repeat(4,1fr)}}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi .v{font-size:20px;font-weight:700}
+.kpi .l{font-size:12px;color:var(--muted)}
+.mrow{display:grid;grid-template-columns:44px 1fr auto;gap:8px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--line);cursor:pointer}
+.mrow:last-child{border-bottom:0}
+.mbar{height:10px;border-radius:5px;background:var(--bg);overflow:hidden}
+.mbar>i{display:block;height:100%;background:var(--accent);border-radius:5px}
+/* formulaires */
+label.f{display:block;margin:10px 0}
+label.f>span{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+input[type=text],input[type=date],input[type=number],input[type=url],input[type=time],select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);min-height:42px}
+textarea{min-height:80px;resize:vertical}
+.check{display:flex;gap:10px;align-items:flex-start;margin:10px 0;cursor:pointer}
+.check input{width:20px;height:20px;margin-top:1px;flex:none}
+.seg{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.seg button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px;font-size:13px;white-space:nowrap;cursor:pointer}
+.seg button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+details{margin:8px 0}
+summary{cursor:pointer;color:var(--accent);font-size:14px}
+.help{font-size:13px;color:var(--muted)}
+.help ol{padding-left:20px;margin:6px 0}
+/* modale */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:620px){.modal-bg{align-items:center}}
+.modal{background:var(--card);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px 22px}
+@media(min-width:620px){.modal{border-radius:18px}}
+.modal .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.modal .actions .btn{flex:1}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;z-index:30;max-width:calc(100% - 32px)}
+#toast .t{background:var(--ink);color:var(--bg);padding:11px 16px;border-radius:12px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+#toast .t.error{background:var(--err);color:#fff}
+.loading{display:flex;flex-direction:column;align-items:center;gap:12px;padding:60px 16px;color:var(--muted)}
+.spin{width:28px;height:28px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.linkbox{font-size:12px;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0}
+.sticky-save{position:sticky;bottom:70px;margin-top:14px}
+</style>
+</head>
+<body>
+<div id="app"><div class="loading"><div class="spin"></div>Chargement…</div></div>
+<div id="toast"></div>
+<div id="modal"></div>
+<script>var BOOT = <?!= bootJson ?>;</script>
+<script>
+(function () {
+'use strict';
+var S = { boot: BOOT, data: null, tab: 'planning', month: '', year: 0, resView: 'upcoming', resSource: '', resQuery: '', noteView: 'upcoming', busy: false, loadError: '' };
+var SRC = { airbnb: 'Airbnb', booking: 'Booking', direct: 'Direct' };
+var MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+var MONTHS_S = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+var DOW = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+
+// ---------- outils ----------
+function $(sel, root) { return (root || document).querySelector(sel); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function pad(n) { return (n < 10 ? '0' : '') + n; }
+function utc(s) { var p = s.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
+function addDays(s, n) { var d = new Date(utc(s) + n * 864e5); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); }
+function dow(s) { return new Date(utc(s)).getUTCDay(); }
+function fmtDate(s, withYear) {
+  if (!s) return '?';
+  var p = s.split('-');
+  return DOW[dow(s)] + ' ' + (+p[2]) + ' ' + MONTHS_S[+p[1] - 1] + (withYear ? ' ' + p[0] : '');
+}
+function fmtMoney(n) {
+  if (n === null || n === undefined || n === '' || isNaN(n)) return '—';
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2 }).format(n);
+}
+function ago(iso) {
+  if (!iso) return 'jamais';
+  var m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'à l\'instant';
+  if (m < 60) return 'il y a ' + m + ' min';
+  var h = Math.round(m / 60);
+  if (h < 24) return 'il y a ' + h + ' h';
+  return 'il y a ' + Math.round(h / 24) + ' j';
+}
+function monthOf(s) { return s.slice(0, 7); }
+function monthTitle(ym) { var p = ym.split('-'); return MONTHS[+p[1] - 1] + ' ' + p[0]; }
+function shiftMonth(ym, n) { var p = ym.split('-'); var d = new Date(Date.UTC(+p[0], +p[1] - 1 + n, 1)); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1); }
+// La gestionnaire voit une seule couleur « occupé » : la plateforme ne la concerne pas.
+function srcKey(src) { return !isOwner() ? 'booking' : (SRC[src] ? src : 'direct'); }
+function srcColor(src) { return 'var(--' + srcKey(src) + ')'; }
+function srcSoft(src) { return 'var(--' + srcKey(src) + '-soft)'; }
+function cleanErr(e) {
+  var m = (e && (e.message || e)) + '';
+  return m.replace(/^(Exception|Error|Erreur)\s*:\s*/i, '').replace(/^ScriptError:\s*/i, '');
+}
+function call(action, payload) {
+  return new Promise(function (resolve, reject) {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).api(S.boot.token, action, payload || {});
+  });
+}
+var toastTimer;
+function toast(msg, type) {
+  var el = $('#toast');
+  el.innerHTML = '<div class="t ' + (type || '') + '" role="status">' + esc(msg) + '</div>';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.innerHTML = ''; }, type === 'error' ? 7000 : 3200);
+}
+function isOwner() { return S.boot.mode === 'owner'; }
+function nightsOf(r) { return r.nights || 0; }
+function occupies(r, d) {
+  if (!r.checkin) return false;
+  if (!r.checkout) return r.checkin === d;
+  return r.checkin <= d && d < r.checkout;
+}
+function activeRes() {
+  return S.data.reservations.filter(function (r) { return r.status !== 'cancelled' && r.status !== 'blocked' && r.hidden !== '1'; });
+}
+function blockedRes() {
+  return S.data.reservations.filter(function (r) { return r.status === 'blocked' && r.hidden !== '1'; });
+}
+function notesOn(d) {
+  return S.data.notes.filter(function (n) { return n.date <= d && d <= (n.endDate || n.date); });
+}
+function guestLabel(r) {
+  if (r.status === 'blocked') return 'Dates fermées (Booking)';
+  if (r.guest) return r.guest;
+  if (!isOwner()) return 'Voyageur';
+  if (r.source === 'booking' && r.origin === 'ical') return 'Booking (sans e-mail)';
+  return SRC[r.source] || 'Réservation';
+}
+
+// ---------- modales ----------
+function openModal(html, onMount) {
+  var m = $('#modal');
+  m.innerHTML = '<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true">' + html + '</div></div>';
+  $('.modal-bg', m).addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+  if (onMount) onMount($('.modal', m));
+}
+function closeModal() { $('#modal').innerHTML = ''; }
+function confirmDialog(text, okLabel, danger) {
+  return new Promise(function (resolve) {
+    openModal('<h3>' + esc(text) + '</h3><div class="actions"><button class="btn" data-a="no">Annuler</button>' +
+      '<button class="btn ' + (danger ? 'danger' : 'primary') + '" data-a="yes">' + esc(okLabel) + '</button></div>', function (m) {
+      m.querySelector('[data-a=no]').onclick = function () { closeModal(); resolve(false); };
+      m.querySelector('[data-a=yes]').onclick = function () { closeModal(); resolve(true); };
+    });
+  });
+}
+
+// ---------- actions serveur ----------
+function act(action, payload, okMsg, btn) {
+  if (S.busy) return Promise.resolve(false);
+  S.busy = true;
+  var label;
+  if (btn) { label = btn.textContent; btn.disabled = true; btn.textContent = '…'; }
+  return call(action, payload).then(function (data) {
+    S.data = data;
+    S.busy = false;
+    closeModal();
+    render();
+    if (okMsg) toast(okMsg);
+    return true;
+  }, function (e) {
+    S.busy = false;
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+    toast(cleanErr(e), 'error');
+    return false;
+  });
+}
+
+function load() {
+  S.loadError = '';
+  render();
+  call('load').then(function (data) {
+    S.data = data;
+    if (!S.month) S.month = monthOf(data.today);
+    if (!S.year) S.year = +data.today.slice(0, 4);
+    render();
+  }, function (e) {
+    S.loadError = cleanErr(e);
+    render();
+  });
+}
+
+// ---------- rendu ----------
+function render() {
+  var app = $('#app');
+  var mode = S.boot.mode;
+  if (mode === 'install') return renderInstall(app);
+  if (mode === 'invalid') {
+    app.innerHTML = '<div class="wrap"><div class="card" style="margin-top:40px"><h3>Lien invalide</h3>' +
+      '<p class="muted">Ce lien n\'est pas (ou plus) valable. Demande un nouveau lien au propriétaire.</p></div></div>';
+    return;
+  }
+  if (S.loadError) {
+    app.innerHTML = '<div class="wrap"><div class="banner err" style="margin-top:30px"><b>Impossible de charger les données.</b><br>' + esc(S.loadError) +
+      '</div><button class="btn primary" id="retry">Réessayer</button></div>';
+    $('#retry').onclick = load;
+    return;
+  }
+  if (!S.data) { app.innerHTML = '<div class="loading"><div class="spin"></div>Chargement…</div>'; return; }
+  if (mode === 'manager') return renderManager(app);
+  renderOwner(app);
+}
+
+function renderInstall(app) {
+  app.innerHTML = '<div class="wrap"><div class="card" style="margin-top:30px"><h3>Installation</h3>' +
+    '<p>Un clic suffit : je crée ta base de données (un Google Sheet dans ton Drive), tes liens d\'accès et la synchronisation automatique, puis je lis tes e-mails Airbnb et Booking.</p>' +
+    '<button class="btn primary" id="go" style="width:100%">Installer</button><p class="muted small" id="st"></p></div></div>';
+  $('#go').onclick = function () {
+    var b = this;
+    b.disabled = true;
+    b.textContent = 'Installation…';
+    google.script.run.withSuccessHandler(function (res) {
+      $('#st').textContent = 'Base créée. Lecture des e-mails en cours (jusqu\'à 2 minutes)…';
+      S.boot = { mode: 'owner', token: res.directUrl.split('k=')[1] };
+      call('sync').then(function (data) { done(res, data.lastSync); }, function (e) { done(res, { ok: false, message: cleanErr(e) }); });
+    }).withFailureHandler(function (e) {
+      b.disabled = false;
+      b.textContent = 'Réessayer';
+      $('#st').textContent = cleanErr(e);
+    }).install();
+  };
+  function done(res, sync) {
+    var url = res.ownerUrl;
+    app.innerHTML = '<div class="wrap"><div class="card" style="margin-top:30px"><h3>C\'est installé ✅</h3>' +
+      (sync && sync.message ? '<p class="small ' + (sync.ok ? 'muted' : '') + '">' + esc(sync.message) + '</p>' : '') +
+      '<p>Voici <b>ton lien propriétaire</b>. Il donne accès à tes revenus : garde-le pour toi. Je te l\'ai aussi envoyé par e-mail.</p>' +
+      '<div class="linkbox">' + esc(url) + '</div>' +
+      '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="' + esc(url) + '" target="_top">Ouvrir mon tableau de bord</a>' +
+      '<p class="muted small">Dans Chrome : menu ⋮ › « Installer l\'application » (ou « Ajouter à l\'écran d\'accueil »).</p>' +
+      (res.directUrl !== url ? '<p class="muted small">Si l\'application ne s\'ouvre pas : <a href="' + esc(res.directUrl) + '" target="_top">lien direct</a>.</p>' : '') + '</div></div>';
+  }
+}
+
+// ======== propriétaire ========
+var TABS = [['planning', '📅', 'Planning'], ['revenus', '💶', 'Revenus'], ['resas', '🧾', 'Réservations'], ['notes', '📝', 'Notes'], ['reglages', '⚙️', 'Réglages']];
+
+function renderOwner(app) {
+  var d = S.data;
+  var ls = d.lastSync;
+  var chip = ls ? '<span class="chip ' + (ls.ok ? '' : 'err') + '" title="' + esc(ls.message) + '">' + (ls.ok ? '✓' : '⚠') + ' ' + esc(ago(ls.at)) + '</span>'
+    : '<span class="chip">Jamais synchronisé</span>';
+  var html = '<header class="top"><h1>' + esc(d.settings.apartmentName) + '</h1>' + chip +
+    '<button class="icon-btn" id="syncBtn" title="Synchroniser maintenant" aria-label="Synchroniser maintenant">↻</button></header><div class="wrap">';
+  html += ({ planning: viewPlanning, revenus: viewRevenus, resas: viewResas, notes: viewNotes, reglages: viewSettings })[S.tab]();
+  html += '</div><nav class="tabs">' + TABS.map(function (t) {
+    return '<button data-tab="' + t[0] + '" class="' + (S.tab === t[0] ? 'on' : '') + '"><span class="ic">' + t[1] + '</span>' + t[2] + '</button>';
+  }).join('') + '</nav>';
+  app.innerHTML = html;
+  app.querySelectorAll('nav.tabs button').forEach(function (b) {
+    b.onclick = function () { S.tab = b.getAttribute('data-tab'); render(); window.scrollTo(0, 0); };
+  });
+  $('#syncBtn').onclick = function () { syncNow(this); };
+  bindCommon(app);
+  ({ planning: bindPlanning, revenus: bindRevenus, resas: bindResas, notes: bindNotes, reglages: bindSettings })[S.tab](app);
+}
+
+function syncNow(btn) {
+  toast('Synchronisation en cours…');
+  act('sync', {}, null, btn).then(function (ok) {
+    if (!ok) return;
+    var ls = S.data.lastSync;
+    toast(ls && ls.ok ? 'Synchronisé : ' + ls.message.split(' — ')[0] : 'Synchro avec erreurs, voir Réglages › Journal', ls && ls.ok ? '' : 'error');
+  });
+}
+
+function banners() {
+  var d = S.data, out = '';
+  if (!d.settings.icalAirbnb || !d.settings.icalBooking) {
+    out += '<div class="banner info">Pour des dates toujours à jour, ajoute ' +
+      (!d.settings.icalAirbnb && !d.settings.icalBooking ? 'tes liens calendrier Airbnb et Booking' : !d.settings.icalAirbnb ? 'ton lien calendrier Airbnb' : 'ton lien calendrier Booking') +
+      '. <button class="btn small" data-goto="reglages">Les ajouter</button></div>';
+  }
+  if (d.lastSync && !d.lastSync.ok) {
+    out += '<div class="banner err"><b>Dernière synchro en erreur.</b> ' + esc(d.lastSync.message.split('| Erreurs : ')[1] || d.lastSync.message) + '</div>';
+  }
+  if (d.overlaps && d.overlaps.length) {
+    var byId = {};
+    d.reservations.forEach(function (r) { byId[r.id] = r; });
+    out += '<div class="banner warn"><b>⚠ Réservations qui se chevauchent</b> (double réservation ?)<br>' + d.overlaps.map(function (p) {
+      var a = byId[p[0]], b = byId[p[1]];
+      return esc(guestLabel(a)) + ' (' + fmtDate(a.checkin) + '→' + fmtDate(a.checkout) + ') et ' + esc(guestLabel(b)) + ' (' + fmtDate(b.checkin) + '→' + fmtDate(b.checkout) + ')';
+    }).join('<br>') + '</div>';
+  }
+  var missing = d.reservations.filter(function (r) { return r.missingAmount; }).length;
+  if (missing) {
+    out += '<div class="banner warn">' + missing + ' réservation(s) sans montant : total incomplet. <button class="btn small" data-missing="1">Compléter</button></div>';
+  }
+  return out;
+}
+
+function bindCommon(root) {
+  root.querySelectorAll('[data-goto]').forEach(function (b) { b.onclick = function () { S.tab = b.getAttribute('data-goto'); render(); }; });
+  root.querySelectorAll('[data-missing]').forEach(function (b) { b.onclick = function () { S.tab = 'resas'; S.resView = 'missing'; render(); }; });
+  root.querySelectorAll('[data-res]').forEach(function (b) {
+    b.onclick = function () {
+      var r = S.data.reservations.filter(function (x) { return x.id === b.getAttribute('data-res'); })[0];
+      if (r) (isOwner() ? editReservation : showManagerRes)(r);
+    };
+  });
+  root.querySelectorAll('[data-note]').forEach(function (b) {
+    b.onclick = function () {
+      var n = S.data.notes.filter(function (x) { return x.id === b.getAttribute('data-note'); })[0];
+      if (n) editNote(n);
+    };
+  });
+}
+
+// ----- calendrier (commun) -----
+function calendarHtml() {
+  var ym = S.month, first = ym + '-01';
+  var startOffset = (dow(first) + 6) % 7; // semaine commençant lundi
+  var start = addDays(first, -startOffset);
+  var res = activeRes();
+  var blk = isOwner() ? blockedRes() : [];
+  var html = '<div class="cal-head"><button class="icon-btn" id="calPrev" aria-label="Mois précédent">‹</button><div class="title">' + monthTitle(ym) +
+    '</div><button class="icon-btn" id="calNext" aria-label="Mois suivant">›</button></div>' +
+    '<div class="row" style="justify-content:center;margin-bottom:6px"><button class="btn small" id="calToday">Aujourd\'hui</button></div><div class="cal">' +
+    ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map(function (x) { return '<div class="dow">' + x + '</div>'; }).join('');
+  for (var i = 0; i < 42; i++) {
+    var d = addDays(start, i);
+    if (i === 35 && monthOf(d) !== ym) break;
+    var night = res.filter(function (r) { return occupies(r, d); })[0];
+    var dep = res.filter(function (r) { return r.checkout === d; })[0];
+    var arr = res.filter(function (r) { return r.checkin === d; })[0];
+    // Moitié gauche = matinée (départ éventuel), moitié droite = nuit occupée.
+    var left = dep ? srcSoft(dep.source) : (night && night.checkin !== d ? srcSoft(night.source) : 'transparent');
+    var right = night ? srcSoft(night.source) : 'transparent';
+    var bg = (left === 'transparent' && right === 'transparent') ? '' :
+      'background:linear-gradient(90deg,' + left + ' 0 50%,' + right + ' 50% 100%);border-color:transparent;';
+    var closed = !night && blk.filter(function (r) { return occupies(r, d); })[0];
+    if (closed) bg = 'background:repeating-linear-gradient(135deg,var(--line) 0 4px,transparent 4px 9px);';
+    var lab = arr ? '<span class="lab" style="color:' + srcColor(arr.source) + '">▸ ' + esc(guestLabel(arr).split(' ')[0]) + '</span>'
+      : (dep && !night ? '<span class="lab muted">◂</span>' : (closed && (closed.checkin === d || d.slice(8) === '01') ? '<span class="lab muted">fermé</span>' : ''));
+    var nn = notesOn(d).length;
+    html += '<button class="day' + (monthOf(d) !== ym ? ' out' : '') + (d === S.data.today ? ' today' : '') + '" data-day="' + d + '" style="' + bg + '">' +
+      '<span class="n">' + (+d.slice(8)) + '</span>' + lab + (nn ? '<span class="dot" title="' + nn + ' note(s)"></span>' : '') + '</button>';
+  }
+  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb-soft)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking-soft)"></i>Booking</span><span><i class="sw" style="background:var(--direct-soft)"></i>Direct</span><span><i class="sw" style="background:repeating-linear-gradient(135deg,var(--line) 0 3px,transparent 3px 6px);border:1px solid var(--line)"></i>Fermé</span>'
+    : '<span><i class="sw" style="background:var(--booking-soft)"></i>Occupé</span>') +
+    '<span><i class="sw" style="background:var(--warn);border-radius:50%"></i>Note</span><span>▸ arrivée</span><span>◂ départ</span></div>';
+  return html;
+}
+function bindCalendar(root) {
+  $('#calPrev', root).onclick = function () { S.month = shiftMonth(S.month, -1); render(); };
+  $('#calNext', root).onclick = function () { S.month = shiftMonth(S.month, 1); render(); };
+  $('#calToday', root).onclick = function () { S.month = monthOf(S.data.today); render(); };
+  root.querySelectorAll('[data-day]').forEach(function (b) { b.onclick = function () { showDay(b.getAttribute('data-day')); }; });
+}
+
+function resCard(r, opts) {
+  opts = opts || {};
+  var badges = '';
+  if (isOwner()) {
+    badges += '<span class="badge ' + esc(r.source) + '">' + esc(SRC[r.source] || r.source) + '</span>';
+    if (r.status === 'blocked') badges += '<span class="badge">Pas une réservation : dates fermées sur Booking</span>';
+    if (r.status === 'cancelled') badges += '<span class="badge err">' + (r.autoStatus === 'absent' ? 'Annulée (plus dans le calendrier)' : 'Annulée') + '</span>';
+    if (r.hidden === '1') badges += '<span class="badge">Masquée</span>';
+    if (r.missingAmount) badges += '<span class="badge warn">Montant à saisir</span>';
+    if (r.amountKind === 'facture') badges += '<span class="badge">≈ part de la facture</span>';
+    if (r.amountKind === 'estimé') badges += '<span class="badge warn">≈ estimé</span>';
+    if (!r.checkout && r.status === 'confirmed') badges += '<span class="badge warn">Départ inconnu</span>';
+  }
+  var amt = isOwner() ? '<span class="amt">' + (r.net === null || !r.counted ? '' : (r.amountKind === 'facture' || r.amountKind === 'estimé' ? '≈ ' : '') + fmtMoney(r.net)) + '</span>' : '';
+  var sub = fmtDate(r.checkin) + ' → ' + (r.checkout ? fmtDate(r.checkout) : '?') + (r.nights ? ' · ' + r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') +
+    (r.guestsText ? ' · ' + esc(r.guestsText) : '');
+  return '<button class="item" data-res="' + esc(r.id) + '"><span class="bar" style="background:' + srcColor(r.source) + '"></span><span class="main"><span class="spread"><span class="t">' +
+    esc(guestLabel(r)) + '</span>' + amt + '</span><span class="small muted" style="display:block">' + sub + '</span>' +
+    (badges ? '<span style="display:block;margin-top:4px">' + badges + '</span>' : '') +
+    (r.sharedNote && !opts.noShared ? '<span class="small" style="display:block;margin-top:4px">💬 ' + esc(r.sharedNote) + '</span>' : '') + '</span></button>';
+}
+function noteCard(n) {
+  var who = n.author === 'manager' ? '<span class="badge">' + esc(S.data.settings.managerLabel || 'Gestionnaire') + '</span>' : '';
+  var vis = isOwner() && n.author !== 'manager' ? (n.visible === '1' ? '<span class="badge direct">Visible gestionnaire</span>' : '<span class="badge">Privée</span>') : '';
+  return '<button class="item" data-note="' + esc(n.id) + '"><span class="bar" style="background:var(--warn)"></span><span class="main"><span class="small muted" style="display:block">📝 ' +
+    fmtDate(n.date) + (n.endDate ? ' → ' + fmtDate(n.endDate) : '') + '</span><span style="display:block;white-space:pre-wrap">' + esc(n.text) + '</span>' +
+    (who || vis ? '<span style="display:block;margin-top:4px">' + who + vis + '</span>' : '') + '</span></button>';
+}
+
+function showDay(d) {
+  var res = S.data.reservations.filter(function (r) {
+    return r.hidden !== '1' && r.status !== 'cancelled' && (r.status !== 'blocked' || isOwner()) && (occupies(r, d) || r.checkout === d);
+  });
+  var notes = notesOn(d);
+  var canNote = isOwner() || S.data.settings.managerCanAddNotes;
+  var html = '<div class="spread"><h3>' + fmtDate(d, true) + '</h3><button class="btn ghost small" data-close>✕</button></div>';
+  if (!res.length && !notes.length) html += '<p class="muted">Rien ce jour-là : logement libre.</p>';
+  res.forEach(function (r) {
+    var what = r.status === 'blocked' ? 'Fermé' : r.checkin === d ? 'Arrivée' : r.checkout === d ? 'Départ' : 'Séjour en cours';
+    html += '<div class="small muted" style="margin-top:8px">' + what + '</div>' + resCard(r);
+  });
+  notes.forEach(function (n) { html += noteCard(n); });
+  html += '<div class="actions">' + (canNote ? '<button class="btn" data-addnote>+ Note ce jour</button>' : '') +
+    (isOwner() ? '<button class="btn" data-addres>+ Réservation</button>' : '') + '</div>';
+  openModal(html, function (m) {
+    m.querySelector('[data-close]').onclick = closeModal;
+    bindCommon(m);
+    var an = m.querySelector('[data-addnote]');
+    if (an) an.onclick = function () { editNote({ date: d, visible: '1' }); };
+    var ar = m.querySelector('[data-addres]');
+    if (ar) ar.onclick = function () { editReservation({ checkin: d, checkout: addDays(d, 1), source: 'direct', origin: 'manual', status: 'confirmed' }); };
+  });
+}
+
+// ----- planning -----
+function viewPlanning() {
+  var ym = S.month;
+  var res = S.data.reservations.filter(function (r) {
+    return r.hidden !== '1' && r.status !== 'blocked' && r.checkin && (monthOf(r.checkin) === ym || (r.checkout && monthOf(r.checkout) === ym) || (r.checkin < ym + '-01' && r.checkout > ym + '-31'));
+  });
+  var notes = S.data.notes.filter(function (n) { return monthOf(n.date) === ym || (n.endDate && n.date < ym + '-01' && n.endDate >= ym + '-01'); });
+  var html = banners() + '<div class="card">' + calendarHtml() + '</div>';
+  html += '<div class="row"><button class="btn primary" id="addRes">+ Réservation</button><button class="btn" id="addNote">+ Note</button></div>';
+  html += '<h2>En ' + monthTitle(ym) + '</h2>';
+  if (!res.length && !notes.length) html += '<div class="empty">Aucune réservation ni note ce mois-ci.</div>';
+  html += res.map(function (r) { return resCard(r); }).join('') + notes.map(noteCard).join('');
+  return html;
+}
+function bindPlanning(root) {
+  bindCalendar(root);
+  $('#addRes', root).onclick = function () { var d = S.data.today; editReservation({ checkin: d, checkout: addDays(d, 1), source: 'direct', origin: 'manual', status: 'confirmed' }); };
+  $('#addNote', root).onclick = function () { editNote({ date: S.data.today, visible: '1' }); };
+}
+
+// ----- revenus -----
+function viewRevenus() {
+  var y = S.year;
+  var st = S.data.stats[y];
+  var years = Object.keys(S.data.stats).map(Number);
+  var html = banners() + '<div class="cal-head"><button class="icon-btn" id="yPrev" aria-label="Année précédente"' + (years.length && y <= Math.min.apply(null, years) ? ' disabled' : '') + '>‹</button><div class="title">' + y +
+    '</div><button class="icon-btn" id="yNext" aria-label="Année suivante">›</button></div>';
+  if (!st) return html + '<div class="empty">Aucune réservation en ' + y + '.</div>';
+  var t = st.total;
+  var occ = t.days ? Math.round(t.nights / t.days * 100) : 0;
+  html += '<div class="kpis"><div class="kpi"><div class="v">' + fmtMoney(t.revenue) + '</div><div class="l">Revenu net ' + y + '</div></div>' +
+    '<div class="kpi"><div class="v">' + t.nights + '</div><div class="l">Nuits louées</div></div>' +
+    '<div class="kpi"><div class="v">' + occ + ' %</div><div class="l">Occupation</div></div>' +
+    '<div class="kpi"><div class="v">' + (t.nights ? fmtMoney(t.revenue / t.nights) : '—') + '</div><div class="l">Net moyen / nuit</div></div></div>';
+  var bs = t.bySource;
+  html += '<div class="card"><h3>Par plateforme</h3>' + ['airbnb', 'booking', 'direct'].map(function (k) {
+    return '<div class="spread" style="padding:4px 0"><span><i class="sw" style="background:' + srcColor(k) + '"></i>' + SRC[k] + '</span><b>' + fmtMoney(bs[k] || 0) + '</b></div>';
+  }).join('') + (t.missing ? '<p class="small" style="color:var(--warn)">⚠ ' + t.missing + ' réservation(s) sans montant : total incomplet.</p>' : '') +
+    (t.estimated ? '<p class="small muted">Dont ' + fmtMoney(t.estimated) + ' estimés (séjours Booking pas encore facturés).</p>' : '') + '</div>';
+  html += bookingCard(y);
+  var max = Math.max.apply(null, st.months.map(function (m) { return m.revenue; })) || 1;
+  html += '<div class="card"><h3>Par mois</h3><p class="help" style="margin-top:-4px">Montants nets (après commissions), répartis par nuit. Touche un mois pour voir ses réservations.</p>' +
+    st.months.map(function (m, i) {
+      return '<div class="mrow" data-month="' + y + '-' + pad(i + 1) + '"><span class="small">' + MONTHS_S[i] + '</span><span><span class="mbar"><i style="width:' + Math.round(m.revenue / max * 100) + '%"></i></span>' +
+        '<span class="small muted">' + m.nights + ' nuit' + (m.nights > 1 ? 's' : '') + ' · ' + Math.round(m.nights / m.days * 100) + ' %' + (m.missing ? ' · <span style="color:var(--warn)">' + m.missing + ' à compléter</span>' : '') +
+        '</span></span><b class="small">' + fmtMoney(m.revenue) + '</b></div>';
+    }).join('') + '</div>';
+  return html;
+}
+function bookingCard(y) {
+  var b = S.data.booking;
+  var inv = b.invoices.filter(function (i) { return i.periodEnd.slice(0, 4) === String(y); });
+  var src = b.rateSource === 'factures' ? 'taux réel de tes factures' : b.rateSource === 'réglage' ? 'fixé dans Réglages' : 'par défaut, en attendant une facture';
+  var html = '<div class="card"><h3>Booking : factures lues</h3><p class="help" style="margin-top:-4px">Booking n\'envoie pas le prix par e-mail. Chaque facture mensuelle (PDF reçu par e-mail) donne le net réel du mois, réparti entre les séjours partis ce mois-là. Les mois pas encore facturés sont estimés' +
+    (b.perNight ? ' à ' + fmtMoney(b.perNight) + ' net par nuit' : '') + '. Commission : ' + esc(String(b.ratePct).replace('.', ',')) + ' % (' + src + ').</p>';
+  if (!inv.length) return html + '<p class="small muted">Aucune facture Booking pour ' + y + '.</p></div>';
+  return html + inv.map(function (i) {
+    var p = i.periodEnd.split('-');
+    return '<div class="spread small" style="padding:5px 0;border-bottom:1px solid var(--line)"><span>' + MONTHS[+p[1] - 1] + '<br><span class="muted">ventes ' + fmtMoney(i.sales) + ' − frais ' + fmtMoney(i.fees) + '</span></span><b>' + fmtMoney(i.net) + '</b></div>';
+  }).join('') + '</div>';
+}
+function bindRevenus(root) {
+  var p = $('#yPrev', root), n = $('#yNext', root);
+  if (p) p.onclick = function () { S.year--; render(); };
+  if (n) n.onclick = function () { S.year++; render(); };
+  root.querySelectorAll('[data-month]').forEach(function (b) { b.onclick = function () { S.month = b.getAttribute('data-month'); S.tab = 'planning'; render(); window.scrollTo(0, 0); }; });
+}
+
+// ----- réservations -----
+function viewResas() {
+  var today = S.data.today;
+  var q = S.resQuery.trim().toLowerCase();
+  var list = S.data.reservations.filter(function (r) {
+    var v = S.resView;
+    if (v === 'hidden') { if (r.hidden !== '1') return false; } else if (r.hidden === '1') return false;
+    if (v === 'blocked') { if (r.status !== 'blocked') return false; } else if (v !== 'all' && r.status === 'blocked') return false;
+    if (v === 'upcoming' && (r.status === 'cancelled' || (r.checkout || r.checkin) < today)) return false;
+    if (v === 'past' && (r.status === 'cancelled' || (r.checkout || r.checkin) >= today)) return false;
+    if (v === 'cancelled' && r.status !== 'cancelled') return false;
+    if (v === 'missing' && !r.missingAmount) return false;
+    if (S.resSource && r.source !== S.resSource) return false;
+    if (q && (guestLabel(r) + ' ' + (r.code || '') + ' ' + (r.note || '') + ' ' + (r.sharedNote || '')).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  if (S.resView === 'past' || S.resView === 'cancelled') list = list.slice().reverse();
+  var views = [['upcoming', 'À venir'], ['past', 'Passées'], ['all', 'Toutes'], ['missing', 'Montant à saisir'], ['cancelled', 'Annulées'], ['blocked', 'Dates fermées'], ['hidden', 'Masquées']];
+  var html = banners() + '<div class="row"><input type="text" id="resQ" placeholder="Rechercher…" value="' + esc(S.resQuery) + '" style="flex:1"><button class="btn primary" id="addRes2">+ Réservation</button></div>' +
+    '<div class="seg" style="margin-top:10px">' + views.map(function (v) { return '<button data-view="' + v[0] + '" class="' + (S.resView === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="seg" style="margin-top:6px">' + [['', 'Toutes plateformes'], ['airbnb', 'Airbnb'], ['booking', 'Booking'], ['direct', 'Direct']].map(function (v) {
+      return '<button data-src="' + v[0] + '" class="' + (S.resSource === v[0] ? 'on' : '') + '">' + v[1] + '</button>';
+    }).join('') + '</div>';
+  html += '<p class="small muted">' + list.length + ' réservation(s)' + (list.length ? ' · total net ' + fmtMoney(list.reduce(function (s, r) { return s + (r.counted && r.net ? r.net : 0); }, 0)) : '') + '</p>';
+  if (!list.length) html += '<div class="empty">' + (S.data.reservations.length ? 'Aucune réservation ne correspond.' : 'Aucune réservation pour l\'instant. Lance une synchro (↻) ou ajoute une réservation directe.') + '</div>';
+  html += list.map(function (r) { return resCard(r); }).join('');
+  return html;
+}
+function bindResas(root) {
+  var qi = $('#resQ', root);
+  qi.oninput = function () {
+    S.resQuery = qi.value;
+    var pos = qi.selectionStart;
+    render();
+    var n = $('#resQ');
+    n.focus();
+    try { n.setSelectionRange(pos, pos); } catch (e) {}
+  };
+  root.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function () { S.resView = b.getAttribute('data-view'); render(); }; });
+  root.querySelectorAll('[data-src]').forEach(function (b) { b.onclick = function () { S.resSource = b.getAttribute('data-src'); render(); }; });
+  $('#addRes2', root).onclick = function () { var d = S.data.today; editReservation({ checkin: d, checkout: addDays(d, 1), source: 'direct', origin: 'manual', status: 'confirmed' }); };
+}
+
+function editReservation(r) {
+  var isNew = !r.id;
+  var manual = isNew || r.origin === 'manual';
+  var locked = r.lockedFields || [];
+  var src = r.source || 'direct';
+  var originTxt = r.origin === 'email' ? 'Lue dans les e-mails ' + (SRC[src] || '') + (r.code ? ' · code ' + esc(r.code) : '')
+    : r.origin === 'ical' ? 'Vue dans le calendrier ' + (SRC[src] || '') + ' (pas d\'e-mail correspondant)' : 'Saisie à la main';
+  var html = '<div class="spread"><h3>' + (isNew ? 'Nouvelle réservation' : esc(guestLabel(r))) + '</h3><button class="btn ghost small" data-close>✕</button></div>' +
+    (isNew ? '' : '<p class="small muted" style="margin-top:-4px">' + originTxt + (locked.filter(function (f) { return f !== 'hidden'; }).length ? ' · modifiée à la main' : '') + '</p>') +
+    '<form id="resForm">' +
+    (manual ? '<label class="f"><span>Plateforme</span><select name="source">' + ['direct', 'airbnb', 'booking'].map(function (k) { return '<option value="' + k + '"' + (src === k ? ' selected' : '') + '>' + (k === 'direct' ? 'Direct (sans plateforme)' : SRC[k]) + '</option>'; }).join('') + '</select></label>' : '') +
+    '<label class="f"><span>Voyageur</span><input type="text" name="guest" value="' + esc(r.guest || '') + '" placeholder="Nom du voyageur"></label>' +
+    '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Arrivée</span><input type="date" name="checkin" required value="' + esc(r.checkin || '') + '"></label>' +
+    '<label class="f" style="flex:1"><span>Départ</span><input type="date" name="checkout" value="' + esc(r.checkout || '') + '"></label></div>' +
+    '<label class="f"><span>Voyageurs</span><input type="text" name="guestsText" value="' + esc(r.guestsText || '') + '" placeholder="ex. 2 adultes, 1 enfant"></label>' +
+    '<label class="f"><span>' + (src === 'airbnb' ? 'Montant net reçu (« Vous gagnez »)' : 'Montant net reçu (optionnel si prix client rempli)') + '</span><input type="text" inputmode="decimal" name="amountNet" value="' + esc(r.amountNet || '') + '" placeholder="ex. 399,41"></label>' +
+    (src !== 'airbnb' ? '<label class="f"><span>Prix payé par le client' + (src === 'booking' ? ' (net calculé avec ' + esc(String(S.data.booking.ratePct).replace('.', ',')) + ' % de commission)' : '') + '</span><input type="text" inputmode="decimal" name="amountGross" value="' + esc(r.amountGross || '') + '" placeholder="ex. 450"></label>' : '') +
+    (r.paidByGuest ? '<p class="small muted">Le voyageur a payé ' + fmtMoney(+r.paidByGuest) + ' au total (taxes comprises).</p>' : '') +
+    (r.amountKind === 'facture' ? '<p class="small muted">Montant affiché : ≈ ' + fmtMoney(r.net) + ', part de la facture Booking du mois de départ (net réel réparti au prorata des nuits). Saisis le montant exact pour le remplacer.</p>' : '') +
+    (r.amountKind === 'estimé' ? '<p class="small muted">Montant affiché : ≈ ' + fmtMoney(r.net) + ', estimé (net moyen par nuit de tes factures Booking) en attendant la facture du mois.</p>' : '') +
+    '<label class="f"><span>Statut</span><select name="status"><option value="confirmed"' + (r.status !== 'cancelled' && r.status !== 'blocked' ? ' selected' : '') + '>Confirmée</option><option value="cancelled"' + (r.status === 'cancelled' ? ' selected' : '') + '>Annulée</option>' +
+      '<option value="blocked"' + (r.status === 'blocked' ? ' selected' : '') + '>Dates fermées (pas une réservation)</option></select></label>' +
+    (r.status === 'blocked' ? '<p class="small muted">Booking a fermé ces dates sans e-mail de réservation : en général une fermeture. Si c\'est une vraie réservation, choisis « Confirmée ».</p>' : '') +
+    '<label class="check" id="keepRow"' + (r.status === 'cancelled' ? '' : ' style="display:none"') + '><input type="checkbox" name="keepRevenue"' + (r.keepRevenue === '1' ? ' checked' : '') + '><span>Annulée mais payée quand même (compter le montant dans mes revenus)</span></label>' +
+    '<label class="f"><span>Note pour la gestionnaire (visible sur sa page)</span><textarea name="sharedNote" placeholder="ex. arrivée tardive, lit bébé à préparer">' + esc(r.sharedNote || '') + '</textarea></label>' +
+    '<label class="f"><span>Note privée (visible par toi seul)</span><textarea name="note">' + esc(r.note || '') + '</textarea></label>' +
+    '<div class="actions"><button type="submit" class="btn primary" id="resSave">' + (isNew ? 'Ajouter' : 'Enregistrer') + '</button></div>' +
+    (isNew ? '' : '<div class="actions">' +
+      (r.hidden === '1' ? '<button type="button" class="btn" data-restore>Réafficher</button>'
+        : '<button type="button" class="btn danger" data-del>' + (manual ? 'Supprimer' : 'Masquer') + '</button>') +
+      (!manual && locked.filter(function (f) { return f !== 'hidden'; }).length ? '<button type="button" class="btn" data-reset>Revenir aux valeurs synchronisées</button>' : '') + '</div>') +
+    (!isNew && !manual ? '<p class="help">Une réservation synchronisée ne peut pas être supprimée (elle reviendrait à la prochaine synchro) : « Masquer » la retire des écrans et des revenus.</p>' : '') +
+    '</form>';
+  openModal(html, function (m) {
+    m.querySelector('[data-close]').onclick = closeModal;
+    var f = m.querySelector('#resForm');
+    f.querySelector('[name=status]').onchange = function () { m.querySelector('#keepRow').style.display = this.value === 'cancelled' ? '' : 'none'; };
+    f.onsubmit = function (e) {
+      e.preventDefault();
+      var fd = new FormData(f);
+      var p = { id: r.id || '', source: fd.get('source') || src };
+      ['guest', 'checkin', 'checkout', 'guestsText', 'amountNet', 'amountGross', 'status', 'sharedNote', 'note'].forEach(function (k) { p[k] = fd.get(k) == null ? (r[k] || '') : fd.get(k); });
+      p.keepRevenue = !!fd.get('keepRevenue');
+      if (!p.checkin) { toast('Indique la date d\'arrivée.', 'error'); return; }
+      if (p.checkout && p.checkout <= p.checkin) { toast('Le départ doit être après l\'arrivée.', 'error'); return; }
+      act('saveReservation', p, isNew ? 'Réservation ajoutée' : 'Réservation enregistrée', m.querySelector('#resSave'));
+    };
+    var del = m.querySelector('[data-del]');
+    if (del) del.onclick = function () {
+      confirmDialog(manual ? 'Supprimer définitivement cette réservation ?' : 'Masquer cette réservation ? Elle disparaîtra du planning et des revenus (réversible dans Réservations › Masquées).', manual ? 'Supprimer' : 'Masquer', true).then(function (ok) {
+        if (ok) act('deleteReservation', { id: r.id }, manual ? 'Réservation supprimée' : 'Réservation masquée');
+      });
+    };
+    var rs = m.querySelector('[data-restore]');
+    if (rs) rs.onclick = function () { act('restoreReservation', { id: r.id }, 'Réservation réaffichée', rs); };
+    var rt = m.querySelector('[data-reset]');
+    if (rt) rt.onclick = function () {
+      confirmDialog('Effacer tes modifications sur cette réservation et reprendre les valeurs des e-mails et calendriers ?', 'Revenir aux valeurs synchronisées', true).then(function (ok) {
+        if (ok) act('resetReservation', { id: r.id }, 'Valeurs synchronisées rétablies');
+      });
+    };
+  });
+}
+
+// ----- notes -----
+function viewNotes() {
+  var today = S.data.today;
+  var list = S.data.notes.filter(function (n) {
+    var end = n.endDate || n.date;
+    if (S.noteView === 'upcoming') return end >= today;
+    if (S.noteView === 'past') return end < today;
+    if (S.noteView === 'manager') return n.author === 'manager';
+    return true;
+  }).sort(function (a, b) { return S.noteView === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date); });
+  var views = [['upcoming', 'À venir'], ['past', 'Passées'], ['all', 'Toutes']];
+  if (isOwner()) views.push(['manager', 'De la gestionnaire']);
+  var html = '<div class="spread"><h2 style="margin:6px 0">Notes</h2><button class="btn primary" id="addNote2">+ Note</button></div>' +
+    '<div class="seg">' + views.map(function (v) { return '<button data-nview="' + v[0] + '" class="' + (S.noteView === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>';
+  if (!list.length) html += '<div class="empty">Aucune note ici. Les notes s\'affichent sur le planning (point orange).</div>';
+  return html + list.map(noteCard).join('');
+}
+function bindNotes(root) {
+  root.querySelectorAll('[data-nview]').forEach(function (b) { b.onclick = function () { S.noteView = b.getAttribute('data-nview'); render(); }; });
+  $('#addNote2', root).onclick = function () { editNote({ date: S.data.today, visible: '1' }); };
+}
+function editNote(n) {
+  var isNew = !n.id;
+  var mine = isOwner() ? true : n.author === 'manager';
+  var canEdit = isNew || (isOwner() ? true : (mine && S.data.settings.managerCanAddNotes));
+  var html = '<div class="spread"><h3>' + (isNew ? 'Nouvelle note' : 'Note') + '</h3><button class="btn ghost small" data-close>✕</button></div>';
+  if (!canEdit) {
+    html += '<p class="small muted">' + fmtDate(n.date, true) + (n.endDate ? ' → ' + fmtDate(n.endDate, true) : '') + '</p><p style="white-space:pre-wrap">' + esc(n.text) + '</p>';
+    return openModal(html, function (m) { m.querySelector('[data-close]').onclick = closeModal; });
+  }
+  html += '<form id="noteForm"><div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Date</span><input type="date" name="date" required value="' + esc(n.date || '') + '"></label>' +
+    '<label class="f" style="flex:1"><span>Jusqu\'au (optionnel)</span><input type="date" name="endDate" value="' + esc(n.endDate || '') + '"></label></div>' +
+    '<label class="f"><span>Texte</span><textarea name="text" required placeholder="ex. Changer les draps, plombier à 14h, plus de café…">' + esc(n.text || '') + '</textarea></label>' +
+    (isOwner() && n.author !== 'manager' ? '<label class="check"><input type="checkbox" name="visible"' + (n.visible === '1' ? ' checked' : '') + '><span>Visible par la gestionnaire</span></label>' : '') +
+    (isOwner() && n.author === 'manager' ? '<p class="small muted">Note écrite par la gestionnaire.</p>' : '') +
+    '<div class="actions"><button type="submit" class="btn primary" id="noteSave">' + (isNew ? 'Ajouter' : 'Enregistrer') + '</button></div>' +
+    (isNew ? '' : '<div class="actions"><button type="button" class="btn danger" data-del>Supprimer</button></div>') + '</form>';
+  openModal(html, function (m) {
+    m.querySelector('[data-close]').onclick = closeModal;
+    var f = m.querySelector('#noteForm');
+    f.onsubmit = function (e) {
+      e.preventDefault();
+      var fd = new FormData(f);
+      var p = { id: n.id || '', date: fd.get('date'), endDate: fd.get('endDate') || '', text: fd.get('text') || '', visible: isOwner() ? (n.author === 'manager' ? true : !!fd.get('visible')) : true };
+      if (!p.text.trim()) { toast('La note est vide.', 'error'); return; }
+      if (p.endDate && p.endDate < p.date) { toast('La date de fin doit être après la date de début.', 'error'); return; }
+      act('saveNote', p, isNew ? 'Note ajoutée' : 'Note enregistrée', m.querySelector('#noteSave'));
+    };
+    var del = m.querySelector('[data-del]');
+    if (del) del.onclick = function () {
+      confirmDialog('Supprimer cette note ?', 'Supprimer', true).then(function (ok) { if (ok) act('deleteNote', { id: n.id }, 'Note supprimée'); });
+    };
+  });
+}
+
+// ----- réglages -----
+function viewSettings() {
+  var s = S.data.settings, d = S.data;
+  var chk = function (name, label, help) {
+    return '<label class="check"><input type="checkbox" name="' + name + '"' + (s[name] ? ' checked' : '') + '><span>' + label + (help ? '<br><span class="help">' + help + '</span>' : '') + '</span></label>';
+  };
+  var waText = encodeURIComponent('Voici le planning de l\'appartement (à garder dans tes favoris) : ' + d.managerUrl);
+  return '<form id="setForm">' +
+    '<div class="card"><h3>Appartement</h3><label class="f"><span>Nom affiché</span><input type="text" name="apartmentName" value="' + esc(s.apartmentName) + '"></label>' +
+    '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Heure d\'arrivée</span><input type="time" name="checkinTime" value="' + esc(s.checkinTime) + '"></label>' +
+    '<label class="f" style="flex:1"><span>Heure de départ</span><input type="time" name="checkoutTime" value="' + esc(s.checkoutTime) + '"></label></div></div>' +
+    '<div class="card"><h3>Calendriers (dates à jour)</h3>' +
+    '<label class="f"><span>Lien calendrier Airbnb (.ics)</span><input type="url" name="icalAirbnb" value="' + esc(s.icalAirbnb) + '" placeholder="https://www.airbnb.fr/calendar/ical/….ics?s=…"></label>' +
+    '<label class="f"><span>Lien calendrier Booking (.ics)</span><input type="url" name="icalBooking" value="' + esc(s.icalBooking) + '" placeholder="https://ical.booking.com/v1/export?t=…"></label>' +
+    '<details><summary>Où trouver ces liens ?</summary><div class="help"><b>Airbnb</b> (appli ou site) :<ol><li>Annonces › ton logement › Disponibilités</li><li>« Associer des calendriers » (ou « Synchronisation des calendriers »)</li><li>« Exporter le calendrier » › copier le lien</li></ol>' +
+    '<b>Booking</b> (extranet admin.booking.com) :<ol><li>Tarifs et disponibilités › Synchroniser les calendriers</li><li>« Exporter le calendrier » › copier le lien</li></ol>Colle chaque lien ici puis Enregistrer : la synchro se lance toute seule.</div></details></div>' +
+    '<div class="card"><h3>Revenus</h3><label class="f"><span>Commission Booking totale (%)</span><input type="text" inputmode="decimal" name="bookingCommissionPct" value="' + esc(String(s.bookingCommissionPct).replace('.', ',')) + '" placeholder="Automatique"></label>' +
+    '<p class="help">Laisse vide : le taux réel (commission + frais de paiement) est calculé sur tes factures Booking' + (d.booking.rateSource === 'factures' ? ', actuellement ' + esc(String(d.booking.ratePct).replace('.', ',')) + ' %' : ' (17 % en attendant la première facture)') +
+    '. Il sert quand tu saisis le prix payé par un client Booking. Les montants Airbnb sont déjà nets.</p></div>' +
+    '<div class="card"><h3>Synchronisation</h3><label class="f"><span>Fréquence automatique</span><select name="syncEveryHours">' + [1, 2, 4, 6, 12, 24].map(function (h) {
+      return '<option value="' + h + '"' + (+s.syncEveryHours === h ? ' selected' : '') + '>' + (h === 24 ? 'Une fois par jour' : 'Toutes les ' + (h === 1 ? 'heures' : h + ' heures')) + '</option>';
+    }).join('') + '</select></label>' +
+    chk('emailScanEnabled', 'Lire mes e-mails Airbnb et Booking', 'Lecture seule. Crée les réservations et récupère les montants Airbnb.') +
+    '<p class="small">Dernière synchro : ' + (d.lastSync ? esc(ago(d.lastSync.at)) + ' — ' + esc(d.lastSync.message) : 'jamais') + '</p>' +
+    '<button type="button" class="btn" id="syncBtn2">↻ Synchroniser maintenant</button>' +
+    '<details><summary>Journal des synchros</summary>' + (d.log.length ? d.log.map(function (l) {
+      return '<p class="small"><b>' + (l.ok === '1' ? '✓' : '⚠') + ' ' + esc(new Date(l.at).toLocaleString('fr-FR')) + '</b> (' + esc(l.kind) + ')<br>' + esc(l.message) + '</p>';
+    }).join('') : '<p class="small muted">Vide.</p>') + '</details></div>' +
+    '<div class="card"><h3>Page de la gestionnaire</h3><p class="help">Elle voit le planning, les arrivées/départs et les notes que tu rends visibles. Jamais tes montants (filtré sur le serveur).</p>' +
+    '<label class="f"><span>Nom affiché</span><input type="text" name="managerLabel" value="' + esc(s.managerLabel) + '"></label>' +
+    chk('managerShowGuestName', 'Montrer le prénom du voyageur') + chk('managerShowGuestCount', 'Montrer le nombre de voyageurs') +
+    chk('managerCanAddNotes', 'Elle peut ajouter des notes', 'Ex. « plus de lessive ». Elle ne peut modifier que les siennes.') +
+    '<label class="f"><span>Jours passés visibles</span><input type="number" min="0" max="365" name="managerPastDays" value="' + esc(s.managerPastDays) + '"></label>' +
+    '<div class="linkbox" id="mgrLink">' + esc(d.managerUrl) + '</div><div class="row">' +
+    '<button type="button" class="btn small" data-copy="' + esc(d.managerUrl) + '">Copier le lien</button>' +
+    '<a class="btn small" style="text-decoration:none" target="_blank" href="https://wa.me/?text=' + waText + '">Envoyer par WhatsApp</a>' +
+    '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.managerUrl) + '">Voir sa page</a>' +
+    (d.managerDirectUrl !== d.managerUrl ? '<button type="button" class="btn small" data-copy="' + esc(d.managerDirectUrl) + '">Copier le lien direct</button>' : '') +
+    '<button type="button" class="btn small danger" id="regen">Changer le lien</button></div></div>' +
+    '<div class="card"><h3>Mon lien propriétaire</h3><p class="help">À garder pour toi : il donne accès à tes revenus. Perdu ? Il est dans ton e-mail « Ton lien propriétaire ».</p>' +
+    '<div class="row"><button type="button" class="btn small" data-copy="' + esc(d.ownerUrl) + '">Copier mon lien</button>' +
+    (d.ownerDirectUrl !== d.ownerUrl ? '<button type="button" class="btn small" data-copy="' + esc(d.ownerDirectUrl) + '">Copier le lien direct</button>' : '') + '</div></div>' +
+    '<div class="card"><h3>Application installable</h3><label class="f"><span>Adresse de l\'application</span><input type="url" name="appUrl" value="' + esc(s.appUrl) + '" placeholder="Vide = liens directs"></label>' +
+    '<p class="help">Les liens partagés passent par cette page pour qu\'on puisse installer l\'application depuis Chrome (menu ⋮ › Installer l\'application). Vide : liens directs Google.</p></div>' +
+    '<div class="card"><h3>Mes données</h3><p class="help">Tout est stocké dans un Google Sheet de ton Drive (export, sauvegarde, filtres…).</p>' +
+    '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.sheetUrl) + '">Ouvrir le Google Sheet</a>' +
+    '<p class="help">Version ' + esc(d.version) + '</p></div>' +
+    '<div class="sticky-save"><button type="submit" class="btn primary" style="width:100%" id="setSave">Enregistrer les réglages</button></div></form>';
+}
+function copyText(t) {
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = t; document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    toast(ok ? 'Lien copié' : 'Copie impossible : appuie longuement sur le lien pour le copier', ok ? '' : 'error');
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function () { toast('Lien copié'); }, fallback);
+  else fallback();
+}
+function bindSettings(root) {
+  root.querySelectorAll('[data-copy]').forEach(function (b) { b.onclick = function () { copyText(b.getAttribute('data-copy')); }; });
+  $('#syncBtn2', root).onclick = function () { syncNow(this); };
+  $('#regen', root).onclick = function () {
+    confirmDialog('Changer le lien de la gestionnaire ? L\'ancien lien ne marchera plus : il faudra lui envoyer le nouveau.', 'Changer le lien', true).then(function (ok) {
+      if (ok) act('regenerateManagerLink', {}, 'Nouveau lien créé : pense à l\'envoyer');
+    });
+  };
+  var f = $('#setForm', root);
+  f.onsubmit = function (e) {
+    e.preventDefault();
+    var fd = new FormData(f);
+    var p = {};
+    ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
+    p.syncEveryHours = +p.syncEveryHours;
+    ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerCanAddNotes'].forEach(function (k) { p[k] = !!fd.get(k); });
+    var before = S.data.settings;
+    var icalChanged = p.icalAirbnb !== before.icalAirbnb || p.icalBooking !== before.icalBooking || (p.emailScanEnabled && !before.emailScanEnabled);
+    act('saveSettings', p, 'Réglages enregistrés', $('#setSave')).then(function (ok) {
+      if (ok && icalChanged) syncNow($('#syncBtn'));
+    });
+  };
+}
+
+// ======== gestionnaire ========
+function renderManager(app) {
+  var d = S.data, s = d.settings, today = d.today;
+  var res = d.reservations;
+  var upcoming = res.filter(function (r) { return (r.checkout || r.checkin) >= today; });
+  var html = '<header class="top"><h1>' + esc(s.apartmentName) + '</h1><span class="chip">Planning</span>' +
+    '<button class="icon-btn" id="reload" title="Actualiser" aria-label="Actualiser">↻</button></header><div class="wrap">';
+  html += '<div class="card">' + calendarHtml() + '</div>';
+  html += '<h2>Prochains passages</h2>';
+  if (!upcoming.length) html += '<div class="empty">Aucune réservation à venir.</div>';
+  upcoming.forEach(function (r) {
+    var next = res.filter(function (x) { return x.checkin === r.checkout; })[0];
+    html += '<div class="card"><div class="spread"><b>' + esc(r.guest || 'Voyageur') + '</b><span class="small muted">' + (r.nights ? r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') + '</span></div>' +
+      '<div class="small">🟢 Arrivée ' + fmtDate(r.checkin) + ' à partir de ' + esc(s.checkinTime) + '</div>' +
+      '<div class="small">🔴 Départ ' + (r.checkout ? fmtDate(r.checkout) + ' avant ' + esc(s.checkoutTime) : 'date à confirmer') + '</div>' +
+      (r.guestsText ? '<div class="small muted">👥 ' + esc(r.guestsText) + '</div>' : '') +
+      (r.checkout ? '<div class="small" style="margin-top:6px"><b>🧹 Ménage ' + fmtDate(r.checkout) + ' après ' + esc(s.checkoutTime) + '</b>' +
+        (next ? ' — <span style="color:var(--err)">nouvelle arrivée le même jour à ' + esc(s.checkinTime) + '</span>' : '') + '</div>' : '') +
+      (r.sharedNote ? '<div class="small" style="margin-top:6px">💬 ' + esc(r.sharedNote) + '</div>' : '') + '</div>';
+  });
+  var notes = d.notes.filter(function (n) { return (n.endDate || n.date) >= today; }).sort(function (a, b) { return a.date.localeCompare(b.date); });
+  html += '<div class="spread"><h2>Notes</h2>' + (s.managerCanAddNotes ? '<button class="btn primary small" id="mAddNote">+ Note</button>' : '') + '</div>';
+  if (!notes.length) html += '<div class="empty">Aucune note à venir.</div>';
+  html += notes.map(noteCard).join('');
+  html += '<p class="help" style="text-align:center;margin-top:24px">Touche un jour du calendrier pour le détail.</p></div>';
+  app.innerHTML = html;
+  bindCalendar(app);
+  bindCommon(app);
+  $('#reload').onclick = function () { var b = this; b.disabled = true; call('load').then(function (data) { S.data = data; render(); toast('Planning à jour'); }, function (e) { b.disabled = false; toast(cleanErr(e), 'error'); }); };
+  var an = $('#mAddNote');
+  if (an) an.onclick = function () { editNote({ date: today, author: 'manager' }); };
+}
+function showManagerRes(r) {
+  var s = S.data.settings;
+  openModal('<div class="spread"><h3>' + esc(r.guest || 'Voyageur') + '</h3><button class="btn ghost small" data-close>✕</button></div>' +
+    '<p>🟢 Arrivée ' + fmtDate(r.checkin, true) + ' à partir de ' + esc(s.checkinTime) + '<br>🔴 Départ ' + (r.checkout ? fmtDate(r.checkout, true) + ' avant ' + esc(s.checkoutTime) : 'à confirmer') + '</p>' +
+    (r.guestsText ? '<p>👥 ' + esc(r.guestsText) + '</p>' : '') + (r.sharedNote ? '<p>💬 ' + esc(r.sharedNote) + '</p>' : ''), function (m) {
+    m.querySelector('[data-close]').onclick = closeModal;
+  });
+}
+
+if (S.boot.mode === 'owner' || S.boot.mode === 'manager') load(); else render();
+})();
+</script>
+</body>
+</html>
