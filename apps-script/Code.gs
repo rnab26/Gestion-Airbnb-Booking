@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.2.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.2.2'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -518,7 +518,9 @@ function checkUpdate_(manual) {
     checkSyntax_(code);
     var nextManifest = JSON.parse(manifest);
     if (vm[1] === APP_VERSION) {
-      status.message = 'Déjà à jour (version ' + APP_VERSION + ').';
+      // Même version : on vérifie quand même que l'outil a le droit de se mettre à jour.
+      scriptApi_('get', '/projects/' + ScriptApp.getScriptId() + '/content');
+      status.message = 'Déjà à jour (version ' + APP_VERSION + '). Mises à jour automatiques prêtes.';
     } else {
       var scriptId = ScriptApp.getScriptId();
       var current = scriptApi_('get', '/projects/' + scriptId + '/content');
@@ -1314,7 +1316,7 @@ function revenueModel_(rawRows, invoices, settings) {
     m.net += (Number(i.sales) || 0) - (Number(i.commission) || 0) - (Number(i.paymentFees) || 0);
   });
   var unallocated = {};
-  var allocNet = 0, allocNights = 0;
+  var allocNet = 0, allocNights = 0, allocNetAll = 0, allocCount = 0;
   Object.keys(byMonth).forEach(function (ym) {
     var list = rows.filter(function (r) { return r.source === 'booking' && r.counted && isYmd_(r.checkin) && bookingMonth_(r) === ym; });
     var known = 0;
@@ -1327,6 +1329,8 @@ function revenueModel_(rawRows, invoices, settings) {
       rest.forEach(function (r) {
         r.net = round2_(remaining * Math.max(1, r.nights) / weight);
         r.amountKind = 'facture';
+        allocNetAll += r.net;
+        allocCount++;
         if (r.nights) { allocNet += r.net; allocNights += r.nights; }
       });
     } else if (remaining > 0.5) {
@@ -1334,10 +1338,12 @@ function revenueModel_(rawRows, invoices, settings) {
     }
   });
   var perNight = allocNights ? allocNet / allocNights : 0;
+  // Séjours sans date de départ connue (Booking passé) : moyenne par séjour des factures.
+  var perStay = allocCount ? allocNetAll / allocCount : 0;
   rows.forEach(function (r) {
-    if (r.source === 'booking' && r.counted && r.net === null && perNight && !byMonth[bookingMonth_(r)]) {
-      r.net = round2_(perNight * Math.max(1, r.nights));
-      r.amountKind = 'estimé';
+    if (r.source === 'booking' && r.counted && r.net === null && !byMonth[bookingMonth_(r)]) {
+      var est = r.nights && perNight ? perNight * r.nights : perStay;
+      if (est) { r.net = round2_(est); r.amountKind = 'estimé'; }
     }
     r.missingAmount = r.counted && r.net === null;
   });
@@ -1353,7 +1359,7 @@ function computeStats_(rows, unallocated) {
   var years = {};
   function bucket(y) {
     if (!years[y]) {
-      years[y] = { months: [], total: { revenue: 0, estimated: 0, nights: 0, bookings: 0, missing: 0, bySource: {} } };
+      years[y] = { months: [], total: { revenue: 0, estimated: 0, nights: 0, bookings: 0, missing: 0, bySource: {}, revenueWithNights: 0, staysWithoutNights: 0 } };
       for (var i = 0; i < 12; i++) years[y].months.push({ revenue: 0, estimated: 0, nights: 0, bookings: 0, missing: 0, days: daysInMonth_(Number(y), i + 1) });
     }
     return years[y];
@@ -1373,6 +1379,7 @@ function computeStats_(rows, unallocated) {
     var n = r.nights;
     var est = r.amountKind === 'estimé';
     if (!n) {
+      b0.total.staysWithoutNights++;
       if (net) addRev_(b0, m0, net, r.source, est);
       return;
     }
@@ -1383,13 +1390,14 @@ function computeStats_(rows, unallocated) {
       var mi = Number(d.slice(5, 7)) - 1;
       b.months[mi].nights++;
       b.total.nights++;
-      if (perNight) addRev_(b, mi, perNight, r.source, est);
+      if (perNight) { addRev_(b, mi, perNight, r.source, est); b.total.revenueWithNights += perNight; }
     }
   });
   Object.keys(years).forEach(function (y) {
     var t = years[y].total;
     t.revenue = round2_(t.revenue);
     t.estimated = round2_(t.estimated);
+    t.revenueWithNights = round2_(t.revenueWithNights);
     Object.keys(t.bySource).forEach(function (k) { t.bySource[k] = round2_(t.bySource[k]); });
     years[y].months.forEach(function (m) { m.revenue = round2_(m.revenue); m.estimated = round2_(m.estimated); });
     t.days = (Number(y) % 4 === 0 && (Number(y) % 100 !== 0 || Number(y) % 400 === 0)) ? 366 : 365;
