@@ -87,7 +87,11 @@ function createEnv(opts) {
       getUuid: () => crypto.randomUUID(),
       sleep: ms => { gmail.slept = (gmail.slept || 0) + ms; },
       formatDate,
-      base64DecodeWebSafe: s => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
+      base64DecodeWebSafe: s => {
+        // Comme Apps Script : refuse ce qui n'est pas du base64 valide.
+        if (typeof s !== 'string' || !/^[A-Za-z0-9_-]*={0,2}$/.test(s) || s.length % 4) throw new Error('Impossible de décoder la chaîne.');
+        return Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
+      },
       newBlob: x => ({
         getDataAsString: () => Buffer.from(x).toString('utf8'),
         getBytes: () => Array.from(Buffer.from(x, 'utf8'))
@@ -174,8 +178,9 @@ function createEnv(opts) {
             if (o.format === 'full') {
               msg.payload.mimeType = 'multipart/mixed';
               msg.payload.parts = [{ mimeType: 'multipart/alternative', parts: [
-                { mimeType: 'text/plain', body: { data: Buffer.from(m.body || '').toString('base64').replace(/\+/g, '-').replace(/\//g, '_') } },
-                { mimeType: 'text/html', body: { data: Buffer.from('<p>html</p>').toString('base64') } }
+                // Comme le vrai service avancé : octets déjà décodés (sauf si le test demande du base64).
+                { mimeType: 'text/plain', body: { data: gmail.base64Bodies ? Buffer.from(m.body || '').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : Array.from(Buffer.from(m.body || '')) } },
+                { mimeType: 'text/html', body: { data: gmail.base64Bodies ? Buffer.from('<p>html</p>').toString('base64').replace(/\+/g, '-').replace(/\//g, '_') : Array.from(Buffer.from('<p>html</p>')) } }
               ] }];
               if (m.attachment) msg.payload.parts.push({ mimeType: 'application/pdf', filename: 'invoice-' + id + '.pdf', body: { attachmentId: 'att-' + id, size: 100 } });
             }
@@ -185,7 +190,7 @@ function createEnv(opts) {
             get(user, msgId, attId) {
               const m = gmail.messages.find(x => x.id === msgId);
               if (attId !== 'att-' + msgId) throw new Error('pièce jointe inconnue');
-              return { data: Buffer.from(m.attachment).toString('base64').replace(/\+/g, '-').replace(/\//g, '_') };
+              return { data: gmail.base64Bodies ? Buffer.from(m.attachment).toString('base64').replace(/\+/g, '-').replace(/\//g, '_') : Array.from(Buffer.from(m.attachment)) };
             }
           }
         }

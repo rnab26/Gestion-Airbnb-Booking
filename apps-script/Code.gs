@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.1.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.1.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -858,7 +858,7 @@ function scanBookingInvoices_(ctx) {
     if (!att) return;
     try {
       var data = gmail_(function () { return Gmail.Users.Messages.Attachments.get('me', ref.id, att.body.attachmentId); }).data;
-      var text = pdfToText_(Utilities.base64DecodeWebSafe(data), att.filename || 'facture.pdf');
+      var text = pdfToText_(bytesOf_(data), att.filename || 'facture.pdf');
       var inv = parseBookingInvoice_(text, subject);
       if (!inv) { ctx.warnings.push('facture Booking illisible : « ' + subject + ' »'); return; }
       if (known['n' + inv.number]) return;
@@ -1530,8 +1530,22 @@ function plainBody_(msg) {
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ');
 }
 
+/**
+ * Le service avancé Gmail d'Apps Script renvoie les champs binaires (corps,
+ * pièces jointes) déjà décodés en tableau d'octets ; l'API REST les renvoie en
+ * base64 « web ». On accepte les deux (constaté sur le compte de Raphaël :
+ * « Impossible de décoder la chaîne » en traitant le tableau comme du base64).
+ */
+function bytesOf_(data) {
+  if (data === null || data === undefined) return [];
+  if (typeof data !== 'string') return data;
+  var s = data.replace(/\s/g, '');
+  while (s.length % 4) s += '=';
+  return Utilities.base64DecodeWebSafe(s);
+}
+
 function decode_(data) {
-  var bytes = Utilities.base64DecodeWebSafe(data);
+  var bytes = bytesOf_(data);
   return Utilities.newBlob(bytes).getDataAsString('UTF-8');
 }
 
