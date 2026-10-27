@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.1.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.1.2'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -777,8 +777,17 @@ function mergePlaceholder_(target, ph) {
   ph.mergedInto = target.key;
 }
 
+// Relecture complète demandée une fois par ces versions (ex. 1.1.2 : la 1.0 avait marqué
+// comme lus des e-mails qu'elle n'avait pas su décoder).
+var EMAIL_RESCAN_VERSION = '1.1.2';
+
 function scanEmails_(ctx) {
   var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('emailRescanDone') !== EMAIL_RESCAN_VERSION) {
+    writeRows_(SHEET_EMAILS, ['id'], []);
+    props.deleteProperty('lastEmailScan');
+    props.setProperty('emailRescanDone', EMAIL_RESCAN_VERSION);
+  }
   var tz = Session.getScriptTimeZone() || 'Europe/Paris';
   var last = props.getProperty('lastEmailScan');
   // Seuls les e-mails utiles (expéditeurs et sujets vérifiés sur les vrais e-mails) : moins de lectures Gmail.
@@ -821,7 +830,10 @@ function scanEmails_(ctx) {
       else if (m.from.indexOf('booking.com') >= 0) handleBookingEmail_(ctx, m, ymd);
     } catch (e) {
       if (isQuotaError_(e)) { stop = true; truncated = true; return; } // repris tel quel à la prochaine synchro
+      // Non marqué comme lu : il sera retenté à la prochaine synchro (une erreur ne fait rien perdre).
       ctx.errors.push('e-mail « ' + m.subject.slice(0, 60) + ' » : ' + e.message);
+      truncated = true;
+      return;
     }
     done.push(m.id);
   });
