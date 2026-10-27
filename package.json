@@ -1,0 +1,8 @@
+{
+  "name": "gestion-airbnb-booking",
+  "private": true,
+  "description": "Tableau de bord Airbnb + Booking (Google Apps Script)",
+  "scripts": {
+    "test": "node --test tests/server.test.js && node tests/ui.test.js"
+  }
+}
