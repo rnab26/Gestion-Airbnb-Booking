@@ -93,8 +93,8 @@ l'application ».
 
 Un seul fichier à coller, sans rien sélectionner dans l'éditeur Google :
 
-1. Ouvre [`dist/Code-complet.gs` en version brute](https://raw.githubusercontent.com/rnab26/Gestion-Airbnb-Booking/main/dist/Code-complet.gs),
-   appuie longuement sur le texte › **Tout sélectionner** › **Copier**.
+1. Ouvre https://rnab26.github.io/Gestion-Airbnb-Booking/copier.html et touche
+   **Copier le code** : tout est copié d'un coup, sans sélection.
 2. Dans ton projet Apps Script : **+** (à côté de « Fichiers ») › **Script** ›
    nom `Code2`. Dans ce nouveau fichier, appui long › **Coller** (laisse les
    2 lignes déjà présentes, elles ne gênent pas).
