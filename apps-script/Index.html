@@ -338,7 +338,11 @@ function linkify(t) {
 
 function banners() {
   var d = S.data, out = '';
-  if (d.lastUpdate && !d.lastUpdate.ok && d.settings.autoUpdateEnabled) {
+  if (d.authUrl) {
+    out += '<div class="banner warn"><b>Une autorisation Google est nécessaire</b> pour que l\'outil se mette à jour tout seul. ' +
+      '<a class="btn small" style="text-decoration:none" target="_blank" rel="noopener" href="' + esc(d.authUrl) + '">Autoriser</a><br>' +
+      '<span class="small muted">Choisis ton compte › « Paramètres avancés » si Google avertit › Autoriser. Ensuite : Réglages › Vérifier maintenant.</span></div>';
+  } else if (d.lastUpdate && !d.lastUpdate.ok && d.settings.autoUpdateEnabled) {
     out += '<div class="banner warn"><b>Mise à jour automatique en attente.</b> ' + linkify(d.lastUpdate.message) + '</div>';
   }
   if (!d.settings.icalAirbnb || !d.settings.icalBooking) {

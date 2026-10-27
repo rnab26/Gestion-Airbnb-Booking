@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.2.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.2.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -216,7 +216,8 @@ function ownerData_() {
     ownerDirectUrl: directUrl_(props.getProperty('ownerToken')),
     sheetUrl: db_().getUrl(),
     version: APP_VERSION,
-    lastUpdate: JSON.parse(props.getProperty('lastUpdate') || 'null')
+    lastUpdate: JSON.parse(props.getProperty('lastUpdate') || 'null'),
+    authUrl: pendingAuthUrl_()
   };
 }
 
@@ -472,6 +473,19 @@ function amountField_(v, label) {
   return String(n);
 }
 
+/**
+ * Lien Google à ouvrir quand le code demande un accès pas encore accordé par le
+ * propriétaire (ex. mise à jour automatique) ; vide si tout est autorisé.
+ */
+function pendingAuthUrl_() {
+  try {
+    var info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+    return info.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED ? (info.getAuthorizationUrl() || '') : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function ensureUpdateTrigger_() {
   var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'autoUpdate'; });
   if (!has) ScriptApp.newTrigger('autoUpdate').timeBased().everyDays(1).atHour(4).create();
@@ -535,7 +549,10 @@ function checkUpdate_(manual) {
     var msg = String(e && e.message || e);
     status.message = /has not been used|disabled|not enabled|SERVICE_DISABLED|User has not enabled/i.test(msg)
       ? 'Active « API Google Apps Script » sur https://script.google.com/home/usersettings (une seule fois) pour les mises à jour automatiques.'
-      : 'Mise à jour impossible : ' + msg;
+      : /insufficient authentication scopes|insufficientPermissions/i.test(msg)
+        ? 'Autorisation Google manquante pour les mises à jour automatiques : touche « Autoriser » en haut de l\'écran (une seule fois).'
+        : 'Mise à jour impossible : ' + msg;
+    status.needsAuth = /insufficient authentication scopes|insufficientPermissions/i.test(msg);
   }
   status.manual = !!manual;
   props.setProperty('lastUpdate', JSON.stringify(status));

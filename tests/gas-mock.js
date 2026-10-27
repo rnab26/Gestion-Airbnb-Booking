@@ -105,6 +105,12 @@ function createEnv(opts) {
       getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }),
       getOAuthToken: () => 'TOKEN',
       getScriptId: () => 'SCRIPT_ID',
+      AuthMode: { FULL: 'FULL' },
+      AuthorizationStatus: { REQUIRED: 'REQUIRED', NOT_REQUIRED: 'NOT_REQUIRED' },
+      getAuthorizationInfo: () => ({
+        getAuthorizationStatus: () => (update.authRequired ? 'REQUIRED' : 'NOT_REQUIRED'),
+        getAuthorizationUrl: () => 'https://script.google.com/macros/d/SCRIPT_ID/authorize'
+      }),
       getProjectTriggers: () => triggers.slice(),
       deleteTrigger: t => { triggers.splice(triggers.indexOf(t), 1); },
       newTrigger(fn) {
@@ -135,6 +141,7 @@ function createEnv(opts) {
         if (url.indexOf('https://script.googleapis.com/v1') === 0) {
           const call = { method: o.method || 'get', path: url.replace('https://script.googleapis.com/v1', ''), body: o.payload ? JSON.parse(o.payload) : null };
           update.calls.push(call);
+          if (update.noScope) return { getResponseCode: () => 403, getContentText: () => JSON.stringify({ error: { message: 'Request had insufficient authentication scopes.' } }) };
           if (update.apiDisabled) return { getResponseCode: () => 403, getContentText: () => JSON.stringify({ error: { message: 'User has not enabled the Apps Script API. Enable it by visiting https://script.google.com/home/usersettings' } }) };
           let res = {};
           if (call.method === 'get' && /\/content$/.test(call.path)) res = { files: [{ name: 'Code2', type: 'SERVER_JS', source: '...' }, { name: 'appsscript', type: 'JSON', source: update.currentManifest }] };

@@ -691,3 +691,14 @@ test('Dates bloquées Airbnb en gris ; blocage en double d’une réservation su
   m = env.api(manager, 'load');
   assert.equal(m.reservations.find(x => x.checkin === '2026-11-04').phone, '+33 6 12 34 56 78');
 });
+
+test('Autorisation manquante pour la mise à jour : lien « Autoriser » proposé, message clair', () => {
+  const { env, owner } = updateEnv('9.9.9');
+  assert.equal(env.api(owner, 'load').authUrl, '');
+  env.update.authRequired = true;
+  env.update.noScope = true;
+  assert.throws(() => env.api(owner, 'checkUpdate'), /touche « Autoriser »/);
+  const d = env.api(owner, 'load');
+  assert.equal(d.authUrl, 'https://script.google.com/macros/d/SCRIPT_ID/authorize');
+  assert.equal(d.lastUpdate.needsAuth, true);
+});
