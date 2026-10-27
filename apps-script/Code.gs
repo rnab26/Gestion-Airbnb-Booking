@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.3.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.3.2'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
