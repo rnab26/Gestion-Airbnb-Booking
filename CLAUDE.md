@@ -64,4 +64,5 @@ Raphaël a donné (27 oct. 2026) tous les accès : commits, merges dans main, Gi
 - [x] Bug réel corrigé (1.1.1) : le service avancé Gmail renvoie les corps en octets, pas en base64 → « Impossible de décoder la chaîne »
 - [x] 1.2.0 (27 oct.) : téléphone (4 derniers chiffres via iCal Airbnb, complet à saisir), provenance (e-mail Airbnb « Ville, Pays »), couleurs Airbnb rouge / Booking bleu / bloqué gris / libre blanc, blocages Airbnb affichés
 - [ ] Ouvert : téléphone complet et pays des voyageurs Booking — absents des e-mails ; possible via l'export de réservations de l'extranet (format à vérifier sur un vrai fichier de Raphaël). Raphaël a proposé ses identifiants Airbnb/Booking : refusé (conditions des plateformes, risque de suspension)
+- [ ] 27 oct. : test réel de « Vérifier maintenant » → 403 « insufficient authentication scopes » : Raphaël n'a jamais accordé script.projects/deployments au script. 1.2.1 affiche un bouton « Autoriser » (ScriptApp.getAuthorizationInfo) ; à déployer une fois via clasp puis Raphaël touche Autoriser
 - [ ] Idées non faites : dépenses (ménage, charges), export comptable, flux iCal pour la gestionnaire
