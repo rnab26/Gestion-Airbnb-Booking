@@ -119,7 +119,7 @@ test('Synchro complète : e-mails + iCal fusionnés correctement', () => {
   const { data } = setup();
   const keys = data.reservations.map(r => r.key).sort();
   assert.deepEqual(keys, ['airbnb:HMTEST0001', 'airbnb:HMTEST0002', 'airbnb:HMTEST0003', 'airbnb:HMTEST0004',
-    'booking-ical:2026-12-20_2026-12-23', 'booking:7100000001', 'booking:7100000002', 'booking:7100000003']);
+    'booking-ical:2026-12-20_2026-12-23', 'booking-ical:2027-01-05_2027-10-22', 'booking:7100000001', 'booking:7100000002', 'booking:7100000003']);
   const a1 = byKey(data, 'airbnb:HMTEST0001');
   assert.equal(a1.net, 412.3);
   assert.equal(a1.guest, 'Jean Dupont');
@@ -347,11 +347,20 @@ test('Booking : facture lue → net réel réparti, taux réel, mois futurs esti
   assert.equal(b1.net, 407.5); assert.equal(b1.amountKind, 'facture');
   assert.equal(b2.net, 407.5);
   assert.equal(d.stats['2026'].months[10].revenue, 815);
-  // Décembre pas encore facturé : estimation au net moyen par nuit
-  const ph = byKey(d, 'booking-ical:2026-12-20_2026-12-23');
+  // Dates fermées sans e-mail : pas une réservation, aucun revenu estimé
+  let ph = byKey(d, 'booking-ical:2026-12-20_2026-12-23');
+  assert.equal(ph.status, 'blocked');
+  assert.equal(ph.counted, false);
+  assert.equal(byKey(d, 'booking-ical:2027-01-05_2027-10-22').counted, false, 'longue fermeture hors revenus');
+  assert.equal(d.stats['2027'], undefined, 'aucune nuit comptée en 2027');
+  // Le propriétaire indique que c'est une vraie réservation : décembre, pas encore facturé, est estimé
+  d = env.api(owner, 'saveReservation', Object.assign({}, ph, { status: 'confirmed' }));
+  ph = byKey(d, 'booking-ical:2026-12-20_2026-12-23');
   assert.equal(ph.amountKind, 'estimé');
   assert.equal(ph.net, 407.5);
   assert.equal(d.stats['2026'].months[11].estimated, 407.5);
+  d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'booking-ical:2026-12-20_2026-12-23').status, 'confirmed', 'choix conservé à la synchro');
   assert.deepEqual(d.reservations.filter(r => r.missingAmount).map(r => r.key), ['airbnb:HMTEST0004'], 'Booking : plus rien à saisir');
   // Montant saisi à la main sur une réservation : le reste de la facture va à l'autre
   d = env.api(owner, 'saveReservation', Object.assign({}, b1, { amountNet: '500' }));
@@ -523,4 +532,14 @@ test('Limite Gmail atteinte : pas d’erreur rouge, lecture reprise ensuite sans
   assert.equal(byKey(d, 'airbnb:HMTEST0003').status, 'cancelled');
   assert.equal(byKey(d, 'booking:7100000002').status, 'cancelled');
   assert.ok(env.gmail.slept > 0, 'appels Gmail espacés');
+});
+
+test('Booking : dates fermées (vrai export) jamais comptées comme réservation ni montrées à la gestionnaire', () => {
+  const { env, manager, data } = setup();
+  const blk = byKey(data, 'booking-ical:2027-01-05_2027-10-22');
+  assert.equal(blk.status, 'blocked');
+  assert.equal(blk.missingAmount, false);
+  assert.deepEqual(data.overlaps, []);
+  const m = env.api(manager, 'load');
+  assert.ok(!m.reservations.some(r => r.checkin === '2027-01-05' || r.checkin === '2026-12-20'));
 });

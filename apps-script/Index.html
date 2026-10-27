@@ -180,12 +180,16 @@ function occupies(r, d) {
   return r.checkin <= d && d < r.checkout;
 }
 function activeRes() {
-  return S.data.reservations.filter(function (r) { return r.status !== 'cancelled' && r.hidden !== '1'; });
+  return S.data.reservations.filter(function (r) { return r.status !== 'cancelled' && r.status !== 'blocked' && r.hidden !== '1'; });
+}
+function blockedRes() {
+  return S.data.reservations.filter(function (r) { return r.status === 'blocked' && r.hidden !== '1'; });
 }
 function notesOn(d) {
   return S.data.notes.filter(function (n) { return n.date <= d && d <= (n.endDate || n.date); });
 }
 function guestLabel(r) {
+  if (r.status === 'blocked') return 'Dates fermées (Booking)';
   if (r.guest) return r.guest;
   if (!isOwner()) return 'Voyageur';
   if (r.source === 'booking' && r.origin === 'ical') return 'Booking (sans e-mail)';
@@ -376,6 +380,7 @@ function calendarHtml() {
   var startOffset = (dow(first) + 6) % 7; // semaine commençant lundi
   var start = addDays(first, -startOffset);
   var res = activeRes();
+  var blk = isOwner() ? blockedRes() : [];
   var html = '<div class="cal-head"><button class="icon-btn" id="calPrev" aria-label="Mois précédent">‹</button><div class="title">' + monthTitle(ym) +
     '</div><button class="icon-btn" id="calNext" aria-label="Mois suivant">›</button></div>' +
     '<div class="row" style="justify-content:center;margin-bottom:6px"><button class="btn small" id="calToday">Aujourd\'hui</button></div><div class="cal">' +
@@ -391,13 +396,15 @@ function calendarHtml() {
     var right = night ? srcSoft(night.source) : 'transparent';
     var bg = (left === 'transparent' && right === 'transparent') ? '' :
       'background:linear-gradient(90deg,' + left + ' 0 50%,' + right + ' 50% 100%);border-color:transparent;';
+    var closed = !night && blk.filter(function (r) { return occupies(r, d); })[0];
+    if (closed) bg = 'background:repeating-linear-gradient(135deg,var(--line) 0 4px,transparent 4px 9px);';
     var lab = arr ? '<span class="lab" style="color:' + srcColor(arr.source) + '">▸ ' + esc(guestLabel(arr).split(' ')[0]) + '</span>'
-      : (dep && !night ? '<span class="lab muted">◂</span>' : '');
+      : (dep && !night ? '<span class="lab muted">◂</span>' : (closed && (closed.checkin === d || d.slice(8) === '01') ? '<span class="lab muted">fermé</span>' : ''));
     var nn = notesOn(d).length;
     html += '<button class="day' + (monthOf(d) !== ym ? ' out' : '') + (d === S.data.today ? ' today' : '') + '" data-day="' + d + '" style="' + bg + '">' +
       '<span class="n">' + (+d.slice(8)) + '</span>' + lab + (nn ? '<span class="dot" title="' + nn + ' note(s)"></span>' : '') + '</button>';
   }
-  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb-soft)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking-soft)"></i>Booking</span><span><i class="sw" style="background:var(--direct-soft)"></i>Direct</span>'
+  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb-soft)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking-soft)"></i>Booking</span><span><i class="sw" style="background:var(--direct-soft)"></i>Direct</span><span><i class="sw" style="background:repeating-linear-gradient(135deg,var(--line) 0 3px,transparent 3px 6px);border:1px solid var(--line)"></i>Fermé</span>'
     : '<span><i class="sw" style="background:var(--booking-soft)"></i>Occupé</span>') +
     '<span><i class="sw" style="background:var(--warn);border-radius:50%"></i>Note</span><span>▸ arrivée</span><span>◂ départ</span></div>';
   return html;
@@ -414,12 +421,13 @@ function resCard(r, opts) {
   var badges = '';
   if (isOwner()) {
     badges += '<span class="badge ' + esc(r.source) + '">' + esc(SRC[r.source] || r.source) + '</span>';
+    if (r.status === 'blocked') badges += '<span class="badge">Pas une réservation : dates fermées sur Booking</span>';
     if (r.status === 'cancelled') badges += '<span class="badge err">' + (r.autoStatus === 'absent' ? 'Annulée (plus dans le calendrier)' : 'Annulée') + '</span>';
     if (r.hidden === '1') badges += '<span class="badge">Masquée</span>';
     if (r.missingAmount) badges += '<span class="badge warn">Montant à saisir</span>';
     if (r.amountKind === 'facture') badges += '<span class="badge">≈ part de la facture</span>';
     if (r.amountKind === 'estimé') badges += '<span class="badge warn">≈ estimé</span>';
-    if (!r.checkout && r.status !== 'cancelled') badges += '<span class="badge warn">Départ inconnu</span>';
+    if (!r.checkout && r.status === 'confirmed') badges += '<span class="badge warn">Départ inconnu</span>';
   }
   var amt = isOwner() ? '<span class="amt">' + (r.net === null || !r.counted ? '' : (r.amountKind === 'facture' || r.amountKind === 'estimé' ? '≈ ' : '') + fmtMoney(r.net)) + '</span>' : '';
   var sub = fmtDate(r.checkin) + ' → ' + (r.checkout ? fmtDate(r.checkout) : '?') + (r.nights ? ' · ' + r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') +
@@ -438,13 +446,15 @@ function noteCard(n) {
 }
 
 function showDay(d) {
-  var res = S.data.reservations.filter(function (r) { return r.hidden !== '1' && r.status !== 'cancelled' && (occupies(r, d) || r.checkout === d); });
+  var res = S.data.reservations.filter(function (r) {
+    return r.hidden !== '1' && r.status !== 'cancelled' && (r.status !== 'blocked' || isOwner()) && (occupies(r, d) || r.checkout === d);
+  });
   var notes = notesOn(d);
   var canNote = isOwner() || S.data.settings.managerCanAddNotes;
   var html = '<div class="spread"><h3>' + fmtDate(d, true) + '</h3><button class="btn ghost small" data-close>✕</button></div>';
   if (!res.length && !notes.length) html += '<p class="muted">Rien ce jour-là : logement libre.</p>';
   res.forEach(function (r) {
-    var what = r.checkin === d ? 'Arrivée' : r.checkout === d ? 'Départ' : 'Séjour en cours';
+    var what = r.status === 'blocked' ? 'Fermé' : r.checkin === d ? 'Arrivée' : r.checkout === d ? 'Départ' : 'Séjour en cours';
     html += '<div class="small muted" style="margin-top:8px">' + what + '</div>' + resCard(r);
   });
   notes.forEach(function (n) { html += noteCard(n); });
@@ -464,7 +474,7 @@ function showDay(d) {
 function viewPlanning() {
   var ym = S.month;
   var res = S.data.reservations.filter(function (r) {
-    return r.hidden !== '1' && r.checkin && (monthOf(r.checkin) === ym || (r.checkout && monthOf(r.checkout) === ym) || (r.checkin < ym + '-01' && r.checkout > ym + '-31'));
+    return r.hidden !== '1' && r.status !== 'blocked' && r.checkin && (monthOf(r.checkin) === ym || (r.checkout && monthOf(r.checkout) === ym) || (r.checkin < ym + '-01' && r.checkout > ym + '-31'));
   });
   var notes = S.data.notes.filter(function (n) { return monthOf(n.date) === ym || (n.endDate && n.date < ym + '-01' && n.endDate >= ym + '-01'); });
   var html = banners() + '<div class="card">' + calendarHtml() + '</div>';
@@ -535,6 +545,7 @@ function viewResas() {
   var list = S.data.reservations.filter(function (r) {
     var v = S.resView;
     if (v === 'hidden') { if (r.hidden !== '1') return false; } else if (r.hidden === '1') return false;
+    if (v === 'blocked') { if (r.status !== 'blocked') return false; } else if (v !== 'all' && r.status === 'blocked') return false;
     if (v === 'upcoming' && (r.status === 'cancelled' || (r.checkout || r.checkin) < today)) return false;
     if (v === 'past' && (r.status === 'cancelled' || (r.checkout || r.checkin) >= today)) return false;
     if (v === 'cancelled' && r.status !== 'cancelled') return false;
@@ -544,7 +555,7 @@ function viewResas() {
     return true;
   });
   if (S.resView === 'past' || S.resView === 'cancelled') list = list.slice().reverse();
-  var views = [['upcoming', 'À venir'], ['past', 'Passées'], ['all', 'Toutes'], ['missing', 'Montant à saisir'], ['cancelled', 'Annulées'], ['hidden', 'Masquées']];
+  var views = [['upcoming', 'À venir'], ['past', 'Passées'], ['all', 'Toutes'], ['missing', 'Montant à saisir'], ['cancelled', 'Annulées'], ['blocked', 'Dates fermées'], ['hidden', 'Masquées']];
   var html = banners() + '<div class="row"><input type="text" id="resQ" placeholder="Rechercher…" value="' + esc(S.resQuery) + '" style="flex:1"><button class="btn primary" id="addRes2">+ Réservation</button></div>' +
     '<div class="seg" style="margin-top:10px">' + views.map(function (v) { return '<button data-view="' + v[0] + '" class="' + (S.resView === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>' +
     '<div class="seg" style="margin-top:6px">' + [['', 'Toutes plateformes'], ['airbnb', 'Airbnb'], ['booking', 'Booking'], ['direct', 'Direct']].map(function (v) {
@@ -590,7 +601,9 @@ function editReservation(r) {
     (r.paidByGuest ? '<p class="small muted">Le voyageur a payé ' + fmtMoney(+r.paidByGuest) + ' au total (taxes comprises).</p>' : '') +
     (r.amountKind === 'facture' ? '<p class="small muted">Montant affiché : ≈ ' + fmtMoney(r.net) + ', part de la facture Booking du mois de départ (net réel réparti au prorata des nuits). Saisis le montant exact pour le remplacer.</p>' : '') +
     (r.amountKind === 'estimé' ? '<p class="small muted">Montant affiché : ≈ ' + fmtMoney(r.net) + ', estimé (net moyen par nuit de tes factures Booking) en attendant la facture du mois.</p>' : '') +
-    '<label class="f"><span>Statut</span><select name="status"><option value="confirmed"' + (r.status !== 'cancelled' ? ' selected' : '') + '>Confirmée</option><option value="cancelled"' + (r.status === 'cancelled' ? ' selected' : '') + '>Annulée</option></select></label>' +
+    '<label class="f"><span>Statut</span><select name="status"><option value="confirmed"' + (r.status !== 'cancelled' && r.status !== 'blocked' ? ' selected' : '') + '>Confirmée</option><option value="cancelled"' + (r.status === 'cancelled' ? ' selected' : '') + '>Annulée</option>' +
+      '<option value="blocked"' + (r.status === 'blocked' ? ' selected' : '') + '>Dates fermées (pas une réservation)</option></select></label>' +
+    (r.status === 'blocked' ? '<p class="small muted">Booking a fermé ces dates sans e-mail de réservation : en général une fermeture. Si c\'est une vraie réservation, choisis « Confirmée ».</p>' : '') +
     '<label class="check" id="keepRow"' + (r.status === 'cancelled' ? '' : ' style="display:none"') + '><input type="checkbox" name="keepRevenue"' + (r.keepRevenue === '1' ? ' checked' : '') + '><span>Annulée mais payée quand même (compter le montant dans mes revenus)</span></label>' +
     '<label class="f"><span>Note pour la gestionnaire (visible sur sa page)</span><textarea name="sharedNote" placeholder="ex. arrivée tardive, lit bébé à préparer">' + esc(r.sharedNote || '') + '</textarea></label>' +
     '<label class="f"><span>Note privée (visible par toi seul)</span><textarea name="note">' + esc(r.note || '') + '</textarea></label>' +

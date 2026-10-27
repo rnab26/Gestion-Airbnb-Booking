@@ -274,7 +274,7 @@ function saveReservation_(p) {
       checkout: p.checkout || '',
       amountNet: amountField_(p.amountNet, 'Montant net'),
       amountGross: amountField_(p.amountGross, 'Prix payé par le client'),
-      status: p.status === 'cancelled' ? 'cancelled' : 'confirmed',
+      status: ['cancelled', 'blocked'].indexOf(p.status) >= 0 ? p.status : 'confirmed',
       keepRevenue: p.keepRevenue ? '1' : '',
       note: str_(p.note, 2000),
       sharedNote: str_(p.sharedNote, 2000),
@@ -560,9 +560,12 @@ function applyIcs_(ctx, src, events) {
       return r.source !== 'booking' && r.status !== 'cancelled' && r.checkin === ev.start && r.checkout === ev.end;
     })[0];
     if (dup) return; // dates importées d'Airbnb ou réservation directe déjà connue
+    // Dates fermées sans e-mail Booking : le plus souvent une fermeture (Booking exporte
+    // réservations ET dates fermées sous le même libellé). Affichées en gris, hors revenus ;
+    // le propriétaire peut les passer en réservation. Un e-mail reçu ensuite les rattache.
     var pkey = 'booking-ical:' + ev.start + '_' + ev.end;
-    var pr = upsert_(ctx, pkey, { source: 'booking', origin: 'ical', status: 'confirmed' },
-      { checkin: ev.start, checkout: ev.end });
+    var pr = upsert_(ctx, pkey, { source: 'booking', origin: 'ical', status: 'blocked' },
+      { checkin: ev.start, checkout: ev.end, status: 'blocked' });
     pr.seenAt = ctx.now;
     seen[pkey] = true;
   });
@@ -1071,8 +1074,9 @@ function parseAmount_(raw) {
 // Revenus (seule source de vérité du calcul)
 // =====================================================================
 
+/** Réservation qui occupe le logement (ni annulée, ni simple fermeture de dates, ni masquée). */
 function isActive_(r) {
-  return r.status !== 'cancelled' && r.hidden !== '1';
+  return r.status !== 'cancelled' && r.status !== 'blocked' && r.hidden !== '1';
 }
 
 /** Taux Booking appliqué au prix client : réglage, sinon taux réel des factures, sinon 17 %. */
@@ -1116,7 +1120,7 @@ function revenueModel_(rawRows, invoices, settings) {
     var o = {};
     RES_COLS.forEach(function (c) { o[c] = r[c]; });
     o.nights = nightsBetween_(r.checkin, r.checkout);
-    o.counted = r.hidden !== '1' && (r.status !== 'cancelled' || r.keepRevenue === '1');
+    o.counted = r.hidden !== '1' && (r.status === 'cancelled' ? r.keepRevenue === '1' : r.status !== 'blocked');
     o.net = netAmount_(r, rate.pct);
     o.amountKind = o.net === null ? '' : 'exact';
     o.lockedFields = r.locked ? r.locked.split(',') : [];

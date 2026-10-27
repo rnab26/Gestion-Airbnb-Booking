@@ -25,6 +25,7 @@ function bookingIcs(opts) {
   lines = lines.concat(ev('20261115', '20261118', 'b2@booking.com'));
   if (!opts.withoutPlaceholder) lines = lines.concat(ev('20261220', '20261223', 'b3@booking.com'));
   lines = lines.concat(ev('20261025', '20261029', 'b4@booking.com')); // dates Airbnb réimportées
+  lines = lines.concat(ev('20270105', '20271022', 'b5@booking.com')); // longue fermeture (vue dans le vrai export Booking)
   lines.push('END:VCALENDAR');
   return lines.join('\r\n');
 }
