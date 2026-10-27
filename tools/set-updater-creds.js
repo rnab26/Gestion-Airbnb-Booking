@@ -30,12 +30,17 @@ function readCreds() {
     await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
     let frame = null;
     for (let i = 0; i < 60 && !frame; i++) {
-      for (const f of p.frames()) { try { if (await f.evaluate(() => typeof call === 'function' && !!(window.S && S.boot && S.boot.token))) frame = f; } catch (e) {} }
+      for (const f of p.frames()) { try { if (await f.evaluate(() => !!document.querySelector('#app') && typeof google === 'object')) frame = f; } catch (e) {} }
       if (!frame) await p.waitForTimeout(1000);
     }
     if (!frame) throw new Error('page propriétaire introuvable (lien faux ?)');
-    const res = await frame.evaluate((c) => call('setUpdaterCreds', c).then(() => call('checkUpdate')).then(
-      (d) => ({ ok: true, lastUpdate: d.lastUpdate }), (e) => ({ ok: false, error: String(e && e.message || e) })), creds);
+    // Le code de la page est dans une fonction fermée : on appelle le serveur directement.
+    const key = url.split('k=')[1];
+    const res = await frame.evaluate(([k, c]) => {
+      const api = (a, pl) => new Promise((ok, ko) => google.script.run.withSuccessHandler(ok).withFailureHandler(ko).api(k, a, pl));
+      return api('setUpdaterCreds', c).then(() => api('checkUpdate', {})).then(
+        (d) => ({ ok: true, lastUpdate: d.lastUpdate }), (e) => ({ ok: false, error: String(e && e.message || e) }));
+    }, [key, creds]);
     console.log(JSON.stringify(res, null, 2));
     if (!res.ok || !res.lastUpdate || !res.lastUpdate.ok) process.exitCode = 1;
   } finally {
