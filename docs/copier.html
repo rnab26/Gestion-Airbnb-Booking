@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1f6f5c">
+<title>Mettre à jour l'outil</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root { --bg:#f6f5f2; --ink:#1d1d1f; --muted:#6b6b70; --accent:#1f6f5c; --card:#fff; --line:#e4e2dc; --err:#c0392b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141416; --ink:#f1f1f3; --muted:#a0a0a8; --accent:#3fb394; --card:#1f1f23; --line:#33333a; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .box { max-width:520px; margin:0 auto; padding:24px 16px 40px; }
+  h1 { font-size:21px; margin:0 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:12px 0; }
+  button { width:100%; min-height:56px; border:0; border-radius:12px; background:var(--accent); color:#fff; font:inherit; font-size:18px; font-weight:700; cursor:pointer; }
+  button[disabled] { opacity:.5; }
+  #st { margin-top:10px; font-weight:600; min-height:24px; }
+  .ok { color:var(--accent); } .err { color:var(--err); }
+  ol { padding-left:22px; margin:6px 0; } li { margin:6px 0; }
+  .muted { color:var(--muted); font-size:14px; }
+  textarea { width:100%; height:90px; display:none; margin-top:10px; font-size:12px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Mettre à jour l'outil</h1>
+  <div class="card">
+    <b>1. Copier le code</b>
+    <p class="muted" style="margin:4px 0 10px">Un seul appui, rien à sélectionner.</p>
+    <button id="copy" disabled>Chargement du code…</button>
+    <div id="st"></div>
+    <textarea id="ta" readonly></textarea>
+  </div>
+  <div class="card">
+    <b>2. Le coller dans ton projet Google</b>
+    <ol>
+      <li>Ouvre <a href="https://script.google.com/home" target="_blank" rel="noopener">script.google.com</a> › ton projet.</li>
+      <li><b>+</b> à côté de « Fichiers » › <b>Script</b> › nom <code>Code2</code> (ou n'importe quel nom).</li>
+      <li>Dans ce nouveau fichier : appui long › <b>Coller</b>.</li>
+      <li>Sur l'ancien fichier <code>Code.gs</code> : <b>⋮</b> › <b>Supprimer</b>.</li>
+      <li><b>Déployer</b> › <b>Gérer les déploiements</b> › ✏️ › Version : <b>Nouvelle version</b> › <b>Déployer</b>.</li>
+    </ol>
+    <p class="muted">Les liens et les données ne changent pas.</p>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var SRC = 'https://raw.githubusercontent.com/rnab26/Gestion-Airbnb-Booking/main/dist/Code-complet.gs';
+  var btn = document.getElementById('copy'), st = document.getElementById('st'), ta = document.getElementById('ta');
+  var code = '';
+  function say(t, cls) { st.textContent = t; st.className = cls || ''; }
+  // Le code est chargé d'avance : la copie se fait tout de suite au moment de l'appui.
+  fetch(SRC + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) {
+    if (!r.ok) throw new Error('erreur ' + r.status);
+    return r.text();
+  }).then(function (t) {
+    if (t.indexOf('function doGet') < 0) throw new Error('fichier inattendu');
+    code = t;
+    btn.disabled = false;
+    btn.textContent = 'Copier le code (' + Math.round(t.length / 1024) + ' Ko)';
+  }).catch(function (e) {
+    btn.textContent = 'Réessayer';
+    btn.disabled = false;
+    btn.onclick = function () { location.reload(); };
+    say('Chargement impossible (' + e.message + '). Vérifie ta connexion.', 'err');
+  });
+  function fallback() {
+    ta.style.display = 'block';
+    ta.value = code;
+    ta.focus();
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    if (ok) { ta.style.display = 'none'; done(); }
+    else say('Copie automatique bloquée : appui long dans le cadre ci-dessous › Tout sélectionner › Copier.', 'err');
+  }
+  function done() { say('✓ Code copié. Passe à l\'étape 2.', 'ok'); btn.textContent = 'Copié ✓ (recopier)'; }
+  btn.onclick = function () {
+    if (!code) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, fallback);
+    else fallback();
+  };
+})();
+</script>
+</body>
+</html>
