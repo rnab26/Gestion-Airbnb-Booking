@@ -76,7 +76,8 @@ function doGet(e) {
   if (boot.mode === 'owner' || boot.mode === 'manager') {
     title = getSettings_().apartmentName + (boot.mode === 'manager' ? ' — Planning' : '');
   }
-  var t = HtmlService.createTemplateFromFile('Index');
+  // Version « tout-en-un » (dist/) : la page est intégrée au code, un seul fichier à coller.
+  var t = typeof INDEX_HTML_ === 'string' ? HtmlService.createTemplate(INDEX_HTML_) : HtmlService.createTemplateFromFile('Index');
   t.bootJson = JSON.stringify(boot).replace(/</g, '\\u003c');
   return t.evaluate()
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL) // affichable dans l'application installable

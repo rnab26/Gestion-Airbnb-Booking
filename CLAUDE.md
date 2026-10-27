@@ -38,7 +38,9 @@ autonomie, réponses courtes, preuves avant d'affirmer).
 
 `node --test tests/server.test.js`, `node tests/ui.test.js` (Playwright,
 viewport 390 px) et `node tests/pwa.test.js` (installabilité Chrome). Les trois
-doivent passer avant chaque push.
+doivent passer avant chaque push. Après toute modification de `apps-script/`,
+lancer `node tools/build.js` (fichier tout-en-un `dist/Code-complet.gs`, le seul
+que Raphaël colle depuis son téléphone ; un test échoue s'il n'est pas à jour).
 
 ## Suivi
 
@@ -47,5 +49,7 @@ doivent passer avant chaque push.
 - [x] Application installable : `docs/` (manifest + service worker + cadre vers Apps Script, `?k=` passé en #)
 - [ ] Activer GitHub Pages (Settings › Pages › /docs) — à faire par Raphaël, pas d'API disponible ici
 - [ ] Installation dans le compte Google de Raphaël (copier-coller, voir README ; connecteur Drive en panne le 27 oct.)
-- [ ] À valider sur ses vraies données : lecture des factures, liens iCal
+- [x] Liens iCal réels testés (27 oct.) : l'export Booking mêle réservations et dates fermées → statut « blocked »
+- [ ] À valider sur ses vraies données : lecture des factures
+- [ ] Idée proposée à Raphaël : bouton « Mettre à jour » auto depuis GitHub (API Apps Script) — compromis sécurité, à trancher par lui
 - [ ] Idées non faites : dépenses (ménage, charges), export comptable, flux iCal pour la gestionnaire

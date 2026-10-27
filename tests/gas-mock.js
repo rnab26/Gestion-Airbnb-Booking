@@ -44,6 +44,7 @@ function makeSheet(name) {
 
 function createEnv(opts) {
   opts = opts || {};
+  const codeFile = opts.codeFile || path.join(ROOT, 'Code.gs');
   const props = {};
   const spreadsheets = {};
   const triggers = [];
@@ -175,10 +176,12 @@ function createEnv(opts) {
     },
     HtmlService: {
       XFrameOptionsMode: { ALLOWALL: 'ALLOWALL', DEFAULT: 'DEFAULT' },
-      createTemplateFromFile(name) {
+      createTemplate(src) { return this._tpl(() => src); },
+      createTemplateFromFile(name) { return this._tpl(() => fs.readFileSync(path.join(ROOT, name + '.html'), 'utf8')); },
+      _tpl(read) {
         const t = {
           evaluate() {
-            const html = fs.readFileSync(path.join(ROOT, name + '.html'), 'utf8').replace('<?!= bootJson ?>', t.bootJson);
+            const html = read().replace('<?!= bootJson ?>', t.bootJson);
             const out = { content: html, title: '', xfo: null, setTitle(x) { out.title = x; return out; }, addMetaTag() { return out; },
               setXFrameOptionsMode(m) { out.xfo = m; return out; }, getContent: () => html };
             return out;
@@ -190,7 +193,7 @@ function createEnv(opts) {
     Logger: { log: x => logs.push(x) }
   };
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(ROOT, 'Code.gs'), 'utf8'), ctx, { filename: 'Code.gs' });
+  vm.runInContext(fs.readFileSync(codeFile, 'utf8'), ctx, { filename: path.basename(codeFile) });
   // Les objets passent par JSON comme avec google.script.run.
   const json = x => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
   return {

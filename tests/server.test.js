@@ -543,3 +543,16 @@ test('Booking : dates fermées (vrai export) jamais comptées comme réservation
   const m = env.api(manager, 'load');
   assert.ok(!m.reservations.some(r => r.checkin === '2027-01-05' || r.checkin === '2026-12-20'));
 });
+
+test('Fichier tout-en-un (dist/) : à jour et fonctionne sans Index.html', () => {
+  const p = require('path');
+  const built = fs.readFileSync(p.join(__dirname, '..', 'dist', 'Code-complet.gs'), 'utf8');
+  const src = fs.readFileSync(p.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
+  const html = fs.readFileSync(p.join(__dirname, '..', 'apps-script', 'Index.html'), 'utf8');
+  assert.ok(built.includes(src) && built.includes(JSON.stringify(html)), 'lance node tools/build.js');
+  const env = createEnv({ codeFile: p.join(__dirname, '..', 'dist', 'Code-complet.gs') });
+  env.ctx.HtmlService.createTemplateFromFile = () => { throw new Error('Index.html ne doit pas être utilisé'); };
+  const res = env.install();
+  const page = env.ctx.doGet({ parameter: { k: res.directUrl.split('k=')[1] } }).getContent();
+  assert.ok(page.includes('"mode":"owner"') && page.includes('function renderOwner'));
+});

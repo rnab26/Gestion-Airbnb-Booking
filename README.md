@@ -92,11 +92,22 @@ l'application ».
   d'Airbnb. L'outil ne bloque pas de dates sur les plateformes : il signale
   seulement un chevauchement.
 
-### Mettre à jour plus tard
+### Mettre à jour plus tard (faisable depuis un téléphone)
 
-Recolle les fichiers modifiés, puis **Déployer** › **Gérer les déploiements** ›
-✏️ › Version : **Nouvelle version** › **Déployer**. L'URL et les liens ne
-changent pas.
+Un seul fichier à coller, sans rien sélectionner dans l'éditeur Google :
+
+1. Ouvre [`dist/Code-complet.gs` en version brute](https://raw.githubusercontent.com/rnab26/Gestion-Airbnb-Booking/ccr-f525f83b-nw0ibz/dist/Code-complet.gs),
+   appuie longuement sur le texte › **Tout sélectionner** › **Copier**.
+2. Dans ton projet Apps Script : **+** (à côté de « Fichiers ») › **Script** ›
+   nom `Code2`. Dans ce nouveau fichier, appui long › **Coller** (laisse les
+   2 lignes déjà présentes, elles ne gênent pas).
+3. Sur l'ancien fichier `Code.gs` : **⋮** › **Supprimer**. Le fichier
+   `Index.html` peut rester, il n'est plus utilisé.
+4. **Déployer** › **Gérer les déploiements** › ✏️ › Version : **Nouvelle
+   version** › **Déployer**. L'URL et les liens ne changent pas.
+
+Le fichier `dist/Code-complet.gs` est fabriqué par `node tools/build.js`
+(Code.gs + Index.html intégrée). Un test vérifie qu'il est à jour.
 
 ### Lien propriétaire perdu
 
