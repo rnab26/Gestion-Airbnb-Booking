@@ -589,8 +589,10 @@ test('Mise à jour auto : déjà à jour → rien touché', () => {
   const { env, owner, data } = updateEnv('X');
   env.update.github['dist/Code-complet.gs'] = env.update.github['dist/Code-complet.gs'].replace("var APP_VERSION = 'X'", "var APP_VERSION = '" + data.version + "'");
   const d = env.api(owner, 'checkUpdate');
-  assert.match(d.lastUpdate.message, /Déjà à jour/);
-  assert.equal(env.update.calls.length, 0);
+  assert.match(d.lastUpdate.message, /Déjà à jour.*prêtes/);
+  assert.deepEqual(env.update.calls.map(c => c.method), ['get'], 'seulement la vérification du droit de mise à jour');
+  env.update.noScope = true;
+  assert.throws(() => env.api(owner, 'checkUpdate'), /touche « Autoriser »/, 'droit manquant signalé même à jour');
 });
 
 test('Mise à jour auto : nouveaux accès Google demandés → pas installée, propriétaire prévenu', () => {
@@ -701,4 +703,17 @@ test('Autorisation manquante pour la mise à jour : lien « Autoriser » propos�
   const d = env.api(owner, 'load');
   assert.equal(d.authUrl, 'https://script.google.com/macros/d/SCRIPT_ID/authorize');
   assert.equal(d.lastUpdate.needsAuth, true);
+});
+
+test('Booking sans départ connu : montant estimé à la moyenne par séjour, nuits signalées', () => {
+  const { env, owner } = setup();
+  env.gmail.messages.push({ id: 'inv1', from: 'noreply@booking.com', date: '2026-12-03T12:04:21Z', subject: 'Booking.com Invoice 1670000001', body: '',
+    attachment: INVOICE_LAYOUT.replace('01/07/2026 - 31/07/2026', '01/11/2026 - 30/11/2026').replace('EUR 2 500,00', 'EUR 1 000,00').replace('EUR 425,00', 'EUR 170,00').replace('EUR 37,50', 'EUR 15,00') });
+  env.gmail.messages.push({ id: 'b40', from: 'noreply@booking.com', date: '2026-12-10T10:00:00Z', subject: 'Booking.com - Nouvelle réservation ! (7100000040, lundi 4 janvier 2027)', body: '' });
+  const d = env.api(owner, 'sync');
+  const r = byKey(d, 'booking:7100000040');
+  assert.equal(r.checkout, '');
+  assert.equal(r.amountKind, 'estimé');
+  assert.equal(r.net, 407.5, '815 € / 2 séjours facturés');
+  assert.equal(d.stats['2027'].total.staysWithoutNights, 1);
 });

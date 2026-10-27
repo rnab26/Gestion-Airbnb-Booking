@@ -342,8 +342,6 @@ function banners() {
     out += '<div class="banner warn"><b>Une autorisation Google est nécessaire</b> pour que l\'outil se mette à jour tout seul. ' +
       '<a class="btn small" style="text-decoration:none" target="_blank" rel="noopener" href="' + esc(d.authUrl) + '">Autoriser</a><br>' +
       '<span class="small muted">Choisis ton compte › « Paramètres avancés » si Google avertit › Autoriser. Ensuite : Réglages › Vérifier maintenant.</span></div>';
-  } else if (d.lastUpdate && !d.lastUpdate.ok && d.settings.autoUpdateEnabled) {
-    out += '<div class="banner warn"><b>Mise à jour automatique en attente.</b> ' + linkify(d.lastUpdate.message) + '</div>';
   }
   if (!d.settings.icalAirbnb || !d.settings.icalBooking) {
     out += '<div class="banner info">Pour des dates toujours à jour, ajoute ' +
@@ -351,7 +349,9 @@ function banners() {
       '. <button class="btn small" data-goto="reglages">Les ajouter</button></div>';
   }
   if (d.lastSync && !d.lastSync.ok) {
-    out += '<div class="banner err"><b>Dernière synchro en erreur.</b> ' + esc(d.lastSync.message.split('| Erreurs : ')[1] || d.lastSync.message) + '</div>';
+    var em = d.lastSync.message.split('| Erreurs : ')[1] || d.lastSync.message;
+    out += '<div class="banner err"><b>Dernière synchro en erreur.</b> ' + esc(em.length > 160 ? em.slice(0, 160) + '…' : em) +
+      ' <button class="btn small" data-goto="reglages">Détails</button></div>';
   }
   if (d.overlaps && d.overlaps.length) {
     var byId = {};
@@ -362,7 +362,7 @@ function banners() {
     }).join('<br>') + '</div>';
   }
   var missing = d.reservations.filter(function (r) { return r.missingAmount; }).length;
-  if (missing) {
+  if (missing && (S.tab === 'revenus' || S.tab === 'resas')) {
     out += '<div class="banner warn">' + missing + ' réservation(s) sans montant : total incomplet. <button class="btn small" data-missing="1">Compléter</button></div>';
   }
   return out;
@@ -516,7 +516,8 @@ function viewRevenus() {
   html += '<div class="kpis"><div class="kpi"><div class="v">' + fmtMoney(t.revenue) + '</div><div class="l">Revenu net ' + y + '</div></div>' +
     '<div class="kpi"><div class="v">' + t.nights + '</div><div class="l">Nuits louées</div></div>' +
     '<div class="kpi"><div class="v">' + occ + ' %</div><div class="l">Occupation</div></div>' +
-    '<div class="kpi"><div class="v">' + (t.nights ? fmtMoney(t.revenue / t.nights) : '—') + '</div><div class="l">Net moyen / nuit</div></div></div>';
+    '<div class="kpi"><div class="v">' + (t.nights ? fmtMoney(t.revenueWithNights / t.nights) : '—') + '</div><div class="l">Net moyen / nuit</div></div></div>' +
+    (t.staysWithoutNights ? '<p class="help">' + t.staysWithoutNights + ' séjour(s) sans date de départ connue (Booking ne la donne pas pour les séjours passés) : leurs nuits ne sont pas comptées. Tu peux la saisir dans la réservation.</p>' : '');
   var bs = t.bySource;
   html += '<div class="card"><h3>Par plateforme</h3>' + ['airbnb', 'booking', 'direct'].map(function (k) {
     return '<div class="spread" style="padding:4px 0"><span><i class="sw" style="background:' + srcColor(k) + '"></i>' + SRC[k] + '</span><b>' + fmtMoney(bs[k] || 0) + '</b></div>';
@@ -766,7 +767,7 @@ function viewSettings() {
     '<p class="help">Les liens partagés passent par cette page pour qu\'on puisse installer l\'application depuis Chrome (menu ⋮ › Installer l\'application). Vide : liens directs Google.</p></div>' +
     '<div class="card"><h3>Mises à jour</h3>' +
     chk('autoUpdateEnabled', 'Mettre à jour l\'outil automatiquement (chaque nuit)', 'Seulement les versions qui ont passé tous les tests. Jamais de nouvel accès Google sans ton accord.') +
-    '<p class="small">Version ' + esc(d.version) + (d.lastUpdate ? ' — dernière vérification ' + esc(ago(d.lastUpdate.at)) + ' : ' + linkify(d.lastUpdate.message) : '') + '</p>' +
+    '<p class="small">Version ' + esc(d.version) + (d.lastUpdate ? ' — dernière vérification ' + esc(ago(d.lastUpdate.at)) + ' : ' + (d.lastUpdate.ok ? '' : '⚠ ') + linkify(d.lastUpdate.message) : '') + '</p>' +
     '<button type="button" class="btn small" id="updBtn">Vérifier maintenant</button></div>' +
     '<div class="card"><h3>Mes données</h3><p class="help">Tout est stocké dans un Google Sheet de ton Drive (export, sauvegarde, filtres…).</p>' +
     '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.sheetUrl) + '">Ouvrir le Google Sheet</a>' +
