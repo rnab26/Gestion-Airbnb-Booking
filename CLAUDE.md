@@ -41,6 +41,9 @@ viewport 390 px) et `node tests/pwa.test.js` (installabilité Chrome). Les trois
 doivent passer avant chaque push. Après toute modification de `apps-script/`,
 lancer `node tools/build.js` (fichier tout-en-un `dist/Code-complet.gs`, le seul
 que Raphaël colle depuis son téléphone ; un test échoue s'il n'est pas à jour).
+**Augmenter `APP_VERSION`** dans Code.gs à chaque changement : c'est ce que compare
+la mise à jour automatique. Ne jamais ajouter d'accès Google (oauthScopes) sans
+prévenir Raphaël : la mise à jour auto s'arrête alors et lui demande un collage.
 
 ## Autorisations
 
@@ -55,5 +58,6 @@ Raphaël a donné (27 oct. 2026) tous les accès : commits, merges dans main, Gi
 - [ ] Installation dans le compte Google de Raphaël (copier-coller, voir README ; connecteur Drive en panne le 27 oct.)
 - [x] Liens iCal réels testés (27 oct.) : l'export Booking mêle réservations et dates fermées → statut « blocked »
 - [ ] À valider sur ses vraies données : lecture des factures
-- [ ] Idée proposée à Raphaël : bouton « Mettre à jour » auto depuis GitHub (API Apps Script) — compromis sécurité, à trancher par lui
+- [x] Mise à jour automatique (décision de Raphaël, 27 oct. : « tout automatique ») : chaque nuit, l'outil installe `dist/Code-complet.gs` de la branche `stable` (avancée par `.github/workflows/tests.yml` seulement si les tests passent), via l'API Apps Script ; refuse toute version qui demande de nouveaux accès Google
+- [ ] Raphaël : un dernier collage (page copier.html) + activer l'API Apps Script (script.google.com/home/usersettings) ; ensuite plus rien
 - [ ] Idées non faites : dépenses (ménage, charges), export comptable, flux iCal pour la gestionnaire

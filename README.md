@@ -89,7 +89,16 @@ l'application ».
   d'Airbnb. L'outil ne bloque pas de dates sur les plateformes : il signale
   seulement un chevauchement.
 
-### Mettre à jour plus tard (faisable depuis un téléphone)
+### Mises à jour automatiques
+
+Chaque nuit, l'outil installe tout seul la dernière version **qui a passé les
+tests** (branche `stable`). Il faut pour cela, une seule fois, activer
+« API Google Apps Script » sur https://script.google.com/home/usersettings.
+Une version qui demanderait de nouveaux accès Google n'est jamais installée
+seule : un message te le signale dans l'outil. Réglages › Mises à jour permet
+de couper l'option ou de vérifier tout de suite.
+
+### Mettre à jour à la main (faisable depuis un téléphone)
 
 Un seul fichier à coller, sans rien sélectionner dans l'éditeur Google :
 

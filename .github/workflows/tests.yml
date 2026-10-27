@@ -1,0 +1,23 @@
+# Tests à chaque envoi sur main ; si tout passe, la branche « stable » est
+# avancée. C'est elle (et seulement elle) que l'outil installe tout seul.
+name: Tests et publication stable
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fichier tout-en-un à jour
+        run: node tools/build.js && git diff --exit-code dist/
+      - name: Tests serveur
+        run: node --test tests/server.test.js
+      - name: Publier sur stable
+        run: git push origin HEAD:refs/heads/stable --force

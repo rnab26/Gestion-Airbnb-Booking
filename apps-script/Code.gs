@@ -13,7 +13,11 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.0.0';
+var APP_VERSION = '1.1.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+
+// Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
+// met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
+var UPDATE_BASE_URL = 'https://raw.githubusercontent.com/rnab26/Gestion-Airbnb-Booking/stable/';
 
 var SHEET_RES = 'Reservations';
 var SHEET_NOTES = 'Notes';
@@ -48,6 +52,7 @@ var DEFAULT_SETTINGS = {
   managerShowGuestCount: true,
   managerCanAddNotes: true,
   managerPastDays: 30,
+  autoUpdateEnabled: true,
   // Page installable (GitHub Pages) qui affiche l'application : les liens partagés
   // passent par elle pour pouvoir « Installer l'application » depuis Chrome. Vide = liens directs.
   appUrl: 'https://rnab26.github.io/Gestion-Airbnb-Booking/'
@@ -108,6 +113,7 @@ function install() {
     props.setProperty('managerToken', newToken_());
     props.setProperty('installed', new Date().toISOString());
     installTrigger_(DEFAULT_SETTINGS.syncEveryHours);
+    ensureUpdateTrigger_();
     var ownerUrl = ownerUrl_();
     var directUrl = directUrl_(PropertiesService.getScriptProperties().getProperty('ownerToken'));
     try {
@@ -149,6 +155,7 @@ var OWNER_ACTIONS = {
   saveNote: function (p) { saveNote_(p, 'owner'); return ownerData_(); },
   deleteNote: function (p) { deleteNote_(p.id, 'owner'); return ownerData_(); },
   saveSettings: function (p) { saveSettings_(p); return ownerData_(); },
+  checkUpdate: function () { checkUpdate_(true); return ownerData_(); },
   regenerateManagerLink: function () {
     PropertiesService.getScriptProperties().setProperty('managerToken', newToken_());
     return ownerData_();
@@ -172,6 +179,10 @@ var MANAGER_ACTIONS = {
 function ownerData_() {
   var settings = getSettings_();
   var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('triggersFor') !== APP_VERSION) {
+    // Après une mise à jour : on (re)pose les déclencheurs de la nouvelle version.
+    try { ensureUpdateTrigger_(); props.setProperty('triggersFor', APP_VERSION); } catch (e) { /* réessayé au prochain chargement */ }
+  }
   var invoices = readRows_(SHEET_INVOICES, INVOICE_COLS);
   var model = revenueModel_(readRows_(SHEET_RES, RES_COLS), invoices, settings);
   var rows = model.rows;
@@ -203,7 +214,8 @@ function ownerData_() {
     ownerUrl: ownerUrl_(),
     ownerDirectUrl: directUrl_(props.getProperty('ownerToken')),
     sheetUrl: db_().getUrl(),
-    version: APP_VERSION
+    version: APP_VERSION,
+    lastUpdate: JSON.parse(props.getProperty('lastUpdate') || 'null')
   };
 }
 
@@ -430,6 +442,7 @@ function saveSettings_(p) {
   var app = String(p.appUrl || '').trim();
   if (app && !/^https:\/\/[^\s#?]+\/$/.test(app)) throw new Error('Adresse de l\'application : https://… se terminant par /, ou vide.');
   next.appUrl = app;
+  next.autoUpdateEnabled = !!p.autoUpdateEnabled;
   PropertiesService.getScriptProperties().setProperty('settings', JSON.stringify(next));
   if (next.syncEveryHours !== cur.syncEveryHours) installTrigger_(next.syncEveryHours);
 }
@@ -452,6 +465,106 @@ function amountField_(v, label) {
   var n = parseAmount_(v);
   if (n === null) throw new Error(label + ' : montant invalide.');
   return String(n);
+}
+
+function ensureUpdateTrigger_() {
+  var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'autoUpdate'; });
+  if (!has) ScriptApp.newTrigger('autoUpdate').timeBased().everyDays(1).atHour(4).create();
+}
+
+// =====================================================================
+// Mise à jour automatique (chaque nuit, ou bouton dans Réglages)
+// =====================================================================
+
+/** Déclencheur quotidien. */
+function autoUpdate() {
+  if (!getSettings_().autoUpdateEnabled) return;
+  try { checkUpdate_(false); } catch (e) { /* déjà consigné par checkUpdate_ */ }
+}
+
+/**
+ * Récupère le code publié (branche stable), le vérifie, remplace le code du
+ * projet puis fait pointer le déploiement Web sur la nouvelle version.
+ * N'installe rien si la nouvelle version demande des accès Google en plus :
+ * il faudrait l'accord du propriétaire.
+ */
+function checkUpdate_(manual) {
+  var props = PropertiesService.getScriptProperties();
+  var status = { at: nowIso_(), ok: true, version: APP_VERSION, message: '' };
+  try {
+    var code = fetchText_(UPDATE_BASE_URL + 'dist/Code-complet.gs');
+    var manifest = fetchText_(UPDATE_BASE_URL + 'apps-script/appsscript.json');
+    var vm = code.match(/var APP_VERSION = '([^']+)'/);
+    if (!vm || code.indexOf('function doGet(') < 0 || code.indexOf('var INDEX_HTML_ =') < 0) throw new Error('fichier de mise à jour incomplet');
+    checkSyntax_(code);
+    var nextManifest = JSON.parse(manifest);
+    if (vm[1] === APP_VERSION) {
+      status.message = 'Déjà à jour (version ' + APP_VERSION + ').';
+    } else {
+      var scriptId = ScriptApp.getScriptId();
+      var current = scriptApi_('get', '/projects/' + scriptId + '/content');
+      var curManifest = (current.files || []).filter(function (f) { return f.name === 'appsscript'; })[0];
+      var curScopes = curManifest ? (JSON.parse(curManifest.source).oauthScopes || []) : [];
+      var extra = (nextManifest.oauthScopes || []).filter(function (sc) { return curScopes.indexOf(sc) < 0; });
+      if (extra.length) {
+        status.ok = false;
+        status.needsOwner = true;
+        status.message = 'La version ' + vm[1] + ' demande de nouveaux accès Google : mise à jour manuelle nécessaire (page « Copier le code »).';
+      } else {
+        var m = baseUrl_().match(/\/macros\/s\/([^/]+)\/exec/);
+        if (!m) throw new Error('adresse de déploiement introuvable');
+        scriptApi_('put', '/projects/' + scriptId + '/content', { files: [
+          { name: 'Code', type: 'SERVER_JS', source: code },
+          { name: 'appsscript', type: 'JSON', source: manifest }
+        ] });
+        var ver = scriptApi_('post', '/projects/' + scriptId + '/versions', { description: 'Mise à jour auto ' + vm[1] });
+        scriptApi_('put', '/projects/' + scriptId + '/deployments/' + m[1], { deploymentConfig: {
+          scriptId: scriptId, versionNumber: ver.versionNumber, manifestFileName: 'appsscript', description: 'Version ' + vm[1]
+        } });
+        status.version = vm[1];
+        status.message = 'Mis à jour : version ' + APP_VERSION + ' → ' + vm[1] + '.';
+      }
+    }
+  } catch (e) {
+    status.ok = false;
+    var msg = String(e && e.message || e);
+    status.message = /has not been used|disabled|not enabled|SERVICE_DISABLED|User has not enabled/i.test(msg)
+      ? 'Active « API Google Apps Script » sur https://script.google.com/home/usersettings (une seule fois) pour les mises à jour automatiques.'
+      : 'Mise à jour impossible : ' + msg;
+  }
+  status.manual = !!manual;
+  props.setProperty('lastUpdate', JSON.stringify(status));
+  appendLog_('mise à jour', status.ok, status.message);
+  if (!status.ok && manual) throw new Error(status.message);
+  return status;
+}
+
+function fetchText_(url) {
+  var r = UrlFetchApp.fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 'nocache=' + Date.now(), { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('GitHub répond ' + r.getResponseCode());
+  return r.getContentText();
+}
+
+/** Refuse un code tronqué ou cassé avant de l'installer (analyse seulement, rien n'est exécuté). */
+function checkSyntax_(code) {
+  try {
+    new Function(code); // eslint-disable-line no-new-func
+  } catch (e) {
+    if (e instanceof SyntaxError) throw new Error('code reçu invalide (' + e.message + ')');
+  }
+}
+
+function scriptApi_(method, path, body) {
+  var o = { method: method, muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } };
+  if (body) { o.contentType = 'application/json'; o.payload = JSON.stringify(body); }
+  var r = UrlFetchApp.fetch('https://script.googleapis.com/v1' + path, o);
+  var text = r.getContentText();
+  if (r.getResponseCode() >= 300) {
+    var detail = text;
+    try { detail = JSON.parse(text).error.message; } catch (e) {}
+    throw new Error(detail + ' (' + r.getResponseCode() + ')');
+  }
+  return text ? JSON.parse(text) : {};
 }
 
 function installTrigger_(hours) {
