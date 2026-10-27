@@ -72,12 +72,9 @@ aucun serveur, aucun abonnement, aucune clé à gérer.
 10. Toujours dans **Réglages** › « Page de la gestionnaire » › **Envoyer par
     WhatsApp**.
 
-11. **Activer l'application installable** (une fois) : sur
-    https://github.com/rnab26/Gestion-Airbnb-Booking/settings/pages ›
-    « Source : Deploy from a branch » › branche `ccr-f525f83b-nw0ibz` (ou `main`
-    une fois fusionnée), dossier `/docs` › **Save**. L'adresse
-    https://rnab26.github.io/Gestion-Airbnb-Booking/ répond en 1 à 2 minutes.
-    Sans cette étape, utilise les « liens directs » (Réglages).
+11. L'application installable est en ligne sur
+    https://rnab26.github.io/Gestion-Airbnb-Booking/ (branche `gh-pages`, publiée
+    automatiquement depuis `docs/` à chaque modification sur `main`).
 
 Sur téléphone : ouvre ton lien propriétaire dans Chrome, menu ⋮ › « Installer
 l'application ».
@@ -96,7 +93,7 @@ l'application ».
 
 Un seul fichier à coller, sans rien sélectionner dans l'éditeur Google :
 
-1. Ouvre [`dist/Code-complet.gs` en version brute](https://raw.githubusercontent.com/rnab26/Gestion-Airbnb-Booking/ccr-f525f83b-nw0ibz/dist/Code-complet.gs),
+1. Ouvre [`dist/Code-complet.gs` en version brute](https://raw.githubusercontent.com/rnab26/Gestion-Airbnb-Booking/main/dist/Code-complet.gs),
    appuie longuement sur le texte › **Tout sélectionner** › **Copier**.
 2. Dans ton projet Apps Script : **+** (à côté de « Fichiers ») › **Script** ›
    nom `Code2`. Dans ce nouveau fichier, appui long › **Coller** (laisse les

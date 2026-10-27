@@ -42,12 +42,16 @@ doivent passer avant chaque push. Après toute modification de `apps-script/`,
 lancer `node tools/build.js` (fichier tout-en-un `dist/Code-complet.gs`, le seul
 que Raphaël colle depuis son téléphone ; un test échoue s'il n'est pas à jour).
 
+## Autorisations
+
+Raphaël a donné (27 oct. 2026) tous les accès : commits, merges dans main, GitHub.
+
 ## Suivi
 
 - [x] v1 : planning, revenus, réservations, notes, réglages, page gestionnaire, factures Booking
 - [x] Synchro robuste : annulation/changement de dates sans e-mail (absence du calendrier), retour auto
 - [x] Application installable : `docs/` (manifest + service worker + cadre vers Apps Script, `?k=` passé en #)
-- [ ] Activer GitHub Pages (Settings › Pages › /docs) — à faire par Raphaël, pas d'API disponible ici
+- [x] GitHub Pages actif (27 oct.) : branche `gh-pages`, mise à jour par `.github/workflows/pages.yml` depuis `docs/` sur main
 - [ ] Installation dans le compte Google de Raphaël (copier-coller, voir README ; connecteur Drive en panne le 27 oct.)
 - [x] Liens iCal réels testés (27 oct.) : l'export Booking mêle réservations et dates fermées → statut « blocked »
 - [ ] À valider sur ses vraies données : lecture des factures
