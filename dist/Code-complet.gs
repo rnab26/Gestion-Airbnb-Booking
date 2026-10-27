@@ -16,7 +16,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.3.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.3.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -864,7 +864,7 @@ function mergePlaceholder_(target, ph) {
 
 // Relecture complète demandée une fois par ces versions (ex. 1.1.2 : la 1.0 avait marqué
 // comme lus des e-mails qu'elle n'avait pas su décoder).
-var EMAIL_RESCAN_VERSION = '1.1.2';
+var EMAIL_RESCAN_VERSION = '1.3.1'; // 1.3.1 : messages des clients Booking (nom, arrivée, départ)
 
 function scanEmails_(ctx) {
   var props = PropertiesService.getScriptProperties();
@@ -877,7 +877,8 @@ function scanEmails_(ctx) {
   var last = props.getProperty('lastEmailScan');
   // Seuls les e-mails utiles (expéditeurs et sujets vérifiés sur les vrais e-mails) : moins de lectures Gmail.
   var q = '{(from:automated@airbnb.com subject:(confirmée OR confirmed OR annulation OR annulée OR canceled OR cancelled))' +
-    ' (from:noreply@booking.com subject:("nouvelle réservation" OR annulée OR modification OR "new booking" OR cancelled OR cancellation))}' +
+    ' (from:noreply@booking.com subject:("nouvelle réservation" OR annulée OR modification OR "new booking" OR cancelled OR cancellation OR "envoyé ce message"))' +
+    ' from:(guest.booking.com OR property.booking.com)}' +
     (last ? ' after:' + last : '');
   var processed = {};
   readRows_(SHEET_EMAILS, ['id']).forEach(function (r) { processed[r.id] = true; });
@@ -1028,6 +1029,17 @@ function handleAirbnbEmail_(ctx, m, ymd) {
 }
 
 function handleBookingEmail_(ctx, m, ymd) {
+  // Messages des clients (et demandes d'annulation) : seuls e-mails Booking qui donnent
+  // le nom et la date de départ (vérifié sur les vrais e-mails, 27 oct. 2026).
+  if (/guest\.booking\.com|property\.booking\.com/.test(m.from) || /envoy[ée] ce message/i.test(m.subject)) {
+    var full = gmail_(function () { return Gmail.Users.Messages.get('me', m.id, { format: 'full' }); });
+    var d = parseBookingGuestMessage_(plainBody_(full));
+    if (!d) return;
+    var r = upsert_(ctx, 'booking:' + d.number, { source: 'booking', origin: 'email', status: 'confirmed' },
+      { code: d.number, checkout: d.checkout }, { guest: d.guest, checkin: d.checkin });
+    if (r.origin === 'ical') r.origin = 'email';
+    return;
+  }
   var p = parseBookingSubject_(m.subject);
   if (!p.number) return;
   var key = 'booking:' + p.number;
@@ -1165,6 +1177,23 @@ function parseBookingSubject_(subject) {
   }
   var g = s.match(/:\s*([^:()]+?)\s*\((\d{8,12})\)\s*$/);
   if (g && !/booking/i.test(g[1])) out.guest = g[1].trim();
+  return out;
+}
+
+/** Message de client Booking → numéro, nom, arrivée, départ. */
+function parseBookingGuestMessage_(text) {
+  var t = String(text || '');
+  var num = t.match(/Num[ée]ro de r[ée]servation\s*:\s*(\d{8,12})/i) || t.match(/Booking number\s*:\s*(\d{8,12})/i);
+  if (!num) return null;
+  function dateAfter(label) {
+    var m = t.match(new RegExp(label + '\\s*:\\s*(?:[^\\d\\n]+\\s)?(\\d{1,2})\\s+([^\\s\\d]+)\\s+(\\d{4})', 'i'));
+    if (!m) return '';
+    var mo = monthNum_(m[2]);
+    return mo ? ymd_(Number(m[3]), mo, Number(m[1])) : '';
+  }
+  var name = t.match(/(?:Nom du client|Guest name)\s*:\s*([^\n]+)/i);
+  var out = { number: num[1], guest: name ? name[1].trim() : '', checkin: dateAfter('(?:Arriv[ée]e|Check-in)'), checkout: dateAfter('(?:D[ée]part|Check-out)') };
+  if (out.checkout && out.checkin && out.checkout <= out.checkin) out.checkout = '';
   return out;
 }
 

@@ -76,6 +76,22 @@ Booking confirmation — 7100000001
    Un client de Booking.com vient d’effectuer une réservation dans votre
    établissement.`;
 
+const GUEST_MSG = `   Booking.com
+   Numéro de réservation: 7100000001
+
+   Vous avez reçu un nouveau message d'un client
+
+   ANA LOPEZ a écrit :
+   J'aimerais m'enregistrer à 11:00 - 12:00. C'est possible ?
+
+   Détails de la réservation
+   Nom du client : ANA LOPEZ
+   Arrivée : mercredi 4 novembre 2026
+   Départ : samedi 7 novembre 2026
+   Nom de l'établissement: Appartement Test
+   Numéro de réservation: 7100000001
+`;
+
 const messages = [
   { id: 'a1', from: 'Airbnb <automated@airbnb.com>', date: '2026-09-09T17:01:11Z',
     subject: 'Réservation confirmée : Jean Dupont arrive le 25 oct.',
@@ -106,4 +122,4 @@ const messages = [
   { id: 'x1', from: 'r.owner@gmail.com', date: '2026-10-23T13:46:43Z', subject: 'Re: réservation n° 7100000004', body: 'réponse' }
 ];
 
-module.exports = { messages, airbnbConfirmation };
+module.exports = { messages, airbnbConfirmation, GUEST_MSG };
