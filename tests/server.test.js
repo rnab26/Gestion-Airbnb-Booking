@@ -90,7 +90,9 @@ test('iCal : lignes repliées, dates, résumé', () => {
 test('Installation : base, liens, déclencheur, e-mail du lien', () => {
   const env = createEnv();
   const res = env.install();
-  assert.match(res.ownerUrl, /^https:\/\/script\.google\.com\/macros\/s\/TEST\/exec\?k=[0-9a-f]{64}$/);
+  assert.match(res.directUrl, /^https:\/\/script\.google\.com\/macros\/s\/TEST\/exec\?k=[0-9a-f]{64}$/);
+  assert.equal(res.ownerUrl, 'https://rnab26.github.io/Gestion-Airbnb-Booking/#' + res.directUrl, 'lien via l’application installable');
+  assert.equal(env.ctx.doGet({ parameter: {} }).xfo, 'ALLOWALL', 'affichable dans l’application');
   assert.equal(env.triggers.length, 1);
   assert.equal(env.triggers[0].every, '1h');
   assert.equal(env.mails.length, 1);
@@ -413,4 +415,95 @@ test('Boîte très chargée : lecture étalée sur plusieurs synchros, rien de p
   assert.doesNotMatch(d.lastSync.message, /prochaines synchros/);
   assert.ok(byKey(d, 'airbnb:HMTEST0001'), 'confirmation lue');
   assert.equal(byKey(d, 'airbnb:HMTEST0003').status, 'cancelled');
+});
+
+// ---------- calendrier toujours à jour même si un e-mail manque ----------
+test('Booking : annulation sans e-mail → retirée du planning, revient si les dates réapparaissent', () => {
+  const { env, owner, manager } = setup();
+  const ics = bookingIcs().replace(/BEGIN:VEVENT\r\nDTSTAMP:20261027T080000Z\r\nDTSTART;VALUE=DATE:20261115[\s\S]*?END:VEVENT\r\n/, '');
+  env.fetchMap[BOOKING_URL] = { body: ics };
+  let d = env.api(owner, 'sync');
+  const r = byKey(d, 'booking:7100000003');
+  assert.equal(r.status, 'cancelled');
+  assert.equal(r.autoStatus, 'absent');
+  assert.match(d.lastSync.message, /absente du calendrier : considérée annulée/);
+  assert.ok(!env.api(manager, 'load').reservations.some(x => x.checkin === '2026-11-15'), 'disparue du planning gestionnaire');
+  env.fetchMap[BOOKING_URL] = { body: bookingIcs() };
+  d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'booking:7100000003').status, 'confirmed');
+});
+
+test('Booking : dates changées sans e-mail → réservation déplacée, pas de doublon', () => {
+  const { env, owner } = setup();
+  env.fetchMap[BOOKING_URL] = { body: bookingIcs().replace('DTSTART;VALUE=DATE:20261104', 'DTSTART;VALUE=DATE:20261110').replace('DTEND;VALUE=DATE:20261107', 'DTEND;VALUE=DATE:20261113') };
+  const d = env.api(owner, 'sync');
+  const r = byKey(d, 'booking:7100000001');
+  assert.equal(r.checkin, '2026-11-10');
+  assert.equal(r.checkout, '2026-11-13');
+  assert.equal(r.status, 'confirmed');
+  assert.ok(!byKey(d, 'booking-ical:2026-11-10_2026-11-13'), 'pas de réservation fantôme');
+  assert.deepEqual(d.overlaps, []);
+  assert.match(d.lastSync.message, /dates changées/);
+});
+
+test('Airbnb : annulation sans e-mail → retirée ; e-mail d’annulation tardif sans effet de bord', () => {
+  const { env, owner } = setup();
+  env.gmail.messages.push({ id: 'a9', from: 'automated@airbnb.com', date: new Date().toISOString(),
+    subject: 'Réservation confirmée : Léa Petit arrive le 10 déc.',
+    body: airbnbConfirmation({ first: 'Léa', last: 'Petit', code: 'HMTEST0009', arrLine: '10 DÉC.', datesLine: 'jeu. 10 déc. sam. 12 déc.', guests: '2 adultes', earn: '200,00', total: '250,00' }) });
+  const ev = ['BEGIN:VEVENT', 'DTEND;VALUE=DATE:20261212', 'DTSTART;VALUE=DATE:20261210', 'UID:x9@airbnb.com',
+    'DESCRIPTION:Reservation URL: https://www.airbnb.com/hosting/reservations/details/HMTEST0009', 'SUMMARY:Reserved', 'END:VEVENT'];
+  env.fetchMap[AIRBNB_URL] = { body: airbnbIcs(ev) };
+  let d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'airbnb:HMTEST0009').status, 'confirmed');
+  env.fetchMap[AIRBNB_URL] = { body: airbnbIcs() };
+  d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'airbnb:HMTEST0009').status, 'cancelled');
+  env.gmail.messages.push({ id: 'a10', from: 'automated@airbnb.com', date: new Date().toISOString(), subject: 'Annulation de la réservation HMTEST0009 (10–12 déc. 2026)', body: '' });
+  d = env.api(owner, 'sync');
+  const r = byKey(d, 'airbnb:HMTEST0009');
+  assert.equal(r.status, 'cancelled');
+  assert.equal(d.reservations.filter(x => x.code === 'HMTEST0009').length, 1);
+});
+
+test('Nouvelle réservation : e-mail reçu avant la mise à jour du calendrier → pas annulée par erreur', () => {
+  const { env, owner } = setup();
+  env.gmail.messages.push({ id: 'b20', from: 'noreply@booking.com', date: new Date().toISOString(),
+    subject: 'Booking.com - Nouvelle réservation ! (7100000020, samedi 9 janvier 2027)', body: '' });
+  let d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'booking:7100000020').status, 'confirmed');
+  d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'booking:7100000020').status, 'confirmed', 'jamais vue dans le calendrier et connue depuis moins de 48 h');
+});
+
+test('Calendrier vide suspect : rien n’est annulé', () => {
+  const { env, owner } = setup();
+  env.fetchMap[BOOKING_URL] = { body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR' };
+  const d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'booking:7100000001').status, 'confirmed');
+  assert.match(d.lastSync.message, /vide alors que/);
+});
+
+test('Annulation par e-mail Booking puis nouvelle réservation aux mêmes dates', () => {
+  const { env, owner } = setup();
+  env.gmail.messages.push({ id: 'b30', from: 'noreply@booking.com', date: new Date().toISOString(),
+    subject: 'Booking.com - Réservation annulée ! (7100000001, mercredi 4 novembre 2026)', body: '' });
+  env.gmail.messages.push({ id: 'b31', from: 'noreply@booking.com', date: new Date(Date.now() + 1000).toISOString(),
+    subject: 'Booking.com - Nouvelle réservation ! (7100000031, mercredi 4 novembre 2026)', body: '' });
+  const d = env.api(owner, 'sync');
+  assert.equal(byKey(d, 'booking:7100000001').status, 'cancelled');
+  const n = byKey(d, 'booking:7100000031');
+  assert.equal(n.status, 'confirmed');
+  assert.equal(n.checkout, '2026-11-07');
+  assert.deepEqual(d.overlaps, []);
+});
+
+test('Application installable : adresse réglable, vide = liens directs', () => {
+  const { env, owner, data } = setup({ withIcal: false });
+  assert.ok(data.managerUrl.startsWith('https://rnab26.github.io/Gestion-Airbnb-Booking/#https://script.google.com/'));
+  let d = env.api(owner, 'saveSettings', Object.assign({}, data.settings, { appUrl: '' }));
+  assert.equal(d.managerUrl, d.managerDirectUrl);
+  assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, data.settings, { appUrl: 'http://x' })), /Adresse de l'application/);
+  d = env.api(owner, 'saveSettings', Object.assign({}, data.settings, { appUrl: 'https://exemple.fr/app/' }));
+  assert.ok(d.ownerUrl.startsWith('https://exemple.fr/app/#'));
 });

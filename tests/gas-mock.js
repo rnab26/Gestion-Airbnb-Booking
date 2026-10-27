@@ -169,11 +169,13 @@ function createEnv(opts) {
       }
     },
     HtmlService: {
+      XFrameOptionsMode: { ALLOWALL: 'ALLOWALL', DEFAULT: 'DEFAULT' },
       createTemplateFromFile(name) {
         const t = {
           evaluate() {
             const html = fs.readFileSync(path.join(ROOT, name + '.html'), 'utf8').replace('<?!= bootJson ?>', t.bootJson);
-            const out = { content: html, title: '', setTitle(x) { out.title = x; return out; }, addMetaTag() { return out; }, getContent: () => html };
+            const out = { content: html, title: '', xfo: null, setTitle(x) { out.title = x; return out; }, addMetaTag() { return out; },
+              setXFrameOptionsMode(m) { out.xfo = m; return out; }, getContent: () => html };
             return out;
           }
         };

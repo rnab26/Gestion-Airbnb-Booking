@@ -37,6 +37,14 @@ aucun serveur, aucun abonnement, aucune clé à gérer.
   et changer le lien de la gestionnaire.
 - **Alertes** : double réservation (dates qui se chevauchent), réservation sans
   montant, erreur de synchronisation (avec journal).
+- **Calendrier fiable même si un e-mail manque** : une réservation future qui
+  disparaît du calendrier de la plateforme est marquée annulée, et revient si
+  ses dates réapparaissent. Un changement de dates Booking sans e-mail déplace
+  la réservation. Un calendrier vide suspect ne modifie rien.
+- **Application installable** (Chrome, Android, ordinateur) : les liens
+  partagés passent par la page `docs/` (GitHub Pages). On l'installe avec
+  menu ⋮ › « Installer l'application ». Elle se souvient du lien et fonctionne
+  ensuite comme une appli.
 
 ## Installation (une fois, environ 10 minutes, plus simple depuis un ordinateur)
 
@@ -64,7 +72,25 @@ aucun serveur, aucun abonnement, aucune clé à gérer.
 10. Toujours dans **Réglages** › « Page de la gestionnaire » › **Envoyer par
     WhatsApp**.
 
-Sur téléphone : ouvre ton lien propriétaire puis « Ajouter à l'écran d'accueil ».
+11. **Activer l'application installable** (une fois) : sur
+    https://github.com/rnab26/Gestion-Airbnb-Booking/settings/pages ›
+    « Source : Deploy from a branch » › branche `ccr-f525f83b-nw0ibz` (ou `main`
+    une fois fusionnée), dossier `/docs` › **Save**. L'adresse
+    https://rnab26.github.io/Gestion-Airbnb-Booking/ répond en 1 à 2 minutes.
+    Sans cette étape, utilise les « liens directs » (Réglages).
+
+Sur téléphone : ouvre ton lien propriétaire dans Chrome, menu ⋮ › « Installer
+l'application ».
+
+### Calendriers iCal : à quoi ils servent
+
+- **Dans l'outil (Réglages)**, colle les deux liens *d'export*. Ils donnent les
+  dates de départ Booking, les changements de dates, et les annulations même
+  quand l'e-mail manque.
+- **Entre les plateformes (indépendant de l'outil)** : pour éviter les doubles
+  réservations, Airbnb doit importer le lien d'export Booking, et Booking celui
+  d'Airbnb. L'outil ne bloque pas de dates sur les plateformes : il signale
+  seulement un chevauchement.
 
 ### Mettre à jour plus tard
 
@@ -109,6 +135,7 @@ d'exécution.
 ```
 node --test tests/server.test.js   # 29 tests : lecture des e-mails et factures, synchro, revenus, droits
 node tests/ui.test.js              # parcours complet dans Chromium, écran de téléphone
+node tests/pwa.test.js             # page installable : critères Chrome, cadre, lien mémorisé
 ```
 
 Les tests utilisent des e-mails et une facture réels (structure exacte),

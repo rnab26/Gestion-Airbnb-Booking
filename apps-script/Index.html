@@ -276,21 +276,23 @@ function renderInstall(app) {
     b.textContent = 'Installation…';
     google.script.run.withSuccessHandler(function (res) {
       $('#st').textContent = 'Base créée. Lecture des e-mails en cours (jusqu\'à 2 minutes)…';
-      S.boot = { mode: 'owner', token: res.ownerUrl.split('k=')[1] };
-      call('sync').then(function (data) { done(res.ownerUrl, data.lastSync); }, function (e) { done(res.ownerUrl, { ok: false, message: cleanErr(e) }); });
+      S.boot = { mode: 'owner', token: res.directUrl.split('k=')[1] };
+      call('sync').then(function (data) { done(res, data.lastSync); }, function (e) { done(res, { ok: false, message: cleanErr(e) }); });
     }).withFailureHandler(function (e) {
       b.disabled = false;
       b.textContent = 'Réessayer';
       $('#st').textContent = cleanErr(e);
     }).install();
   };
-  function done(url, sync) {
+  function done(res, sync) {
+    var url = res.ownerUrl;
     app.innerHTML = '<div class="wrap"><div class="card" style="margin-top:30px"><h3>C\'est installé ✅</h3>' +
       (sync && sync.message ? '<p class="small ' + (sync.ok ? 'muted' : '') + '">' + esc(sync.message) + '</p>' : '') +
       '<p>Voici <b>ton lien propriétaire</b>. Il donne accès à tes revenus : garde-le pour toi. Je te l\'ai aussi envoyé par e-mail.</p>' +
       '<div class="linkbox">' + esc(url) + '</div>' +
       '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="' + esc(url) + '" target="_top">Ouvrir mon tableau de bord</a>' +
-      '<p class="muted small">Sur téléphone : ouvre-le puis « Partager › Ajouter à l\'écran d\'accueil ».</p></div></div>';
+      '<p class="muted small">Dans Chrome : menu ⋮ › « Installer l\'application » (ou « Ajouter à l\'écran d\'accueil »).</p>' +
+      (res.directUrl !== url ? '<p class="muted small">Si l\'application ne s\'ouvre pas : <a href="' + esc(res.directUrl) + '" target="_top">lien direct</a>.</p>' : '') + '</div></div>';
   }
 }
 
@@ -412,7 +414,7 @@ function resCard(r, opts) {
   var badges = '';
   if (isOwner()) {
     badges += '<span class="badge ' + esc(r.source) + '">' + esc(SRC[r.source] || r.source) + '</span>';
-    if (r.status === 'cancelled') badges += '<span class="badge err">Annulée</span>';
+    if (r.status === 'cancelled') badges += '<span class="badge err">' + (r.autoStatus === 'absent' ? 'Annulée (plus dans le calendrier)' : 'Annulée') + '</span>';
     if (r.hidden === '1') badges += '<span class="badge">Masquée</span>';
     if (r.missingAmount) badges += '<span class="badge warn">Montant à saisir</span>';
     if (r.amountKind === 'facture') badges += '<span class="badge">≈ part de la facture</span>';
@@ -722,9 +724,13 @@ function viewSettings() {
     '<button type="button" class="btn small" data-copy="' + esc(d.managerUrl) + '">Copier le lien</button>' +
     '<a class="btn small" style="text-decoration:none" target="_blank" href="https://wa.me/?text=' + waText + '">Envoyer par WhatsApp</a>' +
     '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.managerUrl) + '">Voir sa page</a>' +
+    (d.managerDirectUrl !== d.managerUrl ? '<button type="button" class="btn small" data-copy="' + esc(d.managerDirectUrl) + '">Copier le lien direct</button>' : '') +
     '<button type="button" class="btn small danger" id="regen">Changer le lien</button></div></div>' +
     '<div class="card"><h3>Mon lien propriétaire</h3><p class="help">À garder pour toi : il donne accès à tes revenus. Perdu ? Il est dans ton e-mail « Ton lien propriétaire ».</p>' +
-    '<button type="button" class="btn small" data-copy="' + esc(d.ownerUrl) + '">Copier mon lien</button></div>' +
+    '<div class="row"><button type="button" class="btn small" data-copy="' + esc(d.ownerUrl) + '">Copier mon lien</button>' +
+    (d.ownerDirectUrl !== d.ownerUrl ? '<button type="button" class="btn small" data-copy="' + esc(d.ownerDirectUrl) + '">Copier le lien direct</button>' : '') + '</div></div>' +
+    '<div class="card"><h3>Application installable</h3><label class="f"><span>Adresse de l\'application</span><input type="url" name="appUrl" value="' + esc(s.appUrl) + '" placeholder="Vide = liens directs"></label>' +
+    '<p class="help">Les liens partagés passent par cette page pour qu\'on puisse installer l\'application depuis Chrome (menu ⋮ › Installer l\'application). Vide : liens directs Google.</p></div>' +
     '<div class="card"><h3>Mes données</h3><p class="help">Tout est stocké dans un Google Sheet de ton Drive (export, sauvegarde, filtres…).</p>' +
     '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.sheetUrl) + '">Ouvrir le Google Sheet</a>' +
     '<p class="help">Version ' + esc(d.version) + '</p></div>' +
@@ -755,7 +761,7 @@ function bindSettings(root) {
     e.preventDefault();
     var fd = new FormData(f);
     var p = {};
-    ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
+    ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
     p.syncEveryHours = +p.syncEveryHours;
     ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerCanAddNotes'].forEach(function (k) { p[k] = !!fd.get(k); });
     var before = S.data.settings;

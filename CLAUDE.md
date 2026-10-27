@@ -36,12 +36,16 @@ autonomie, réponses courtes, preuves avant d'affirmer).
 
 ## Tests (méthode canonique)
 
-`node --test tests/server.test.js` puis `node tests/ui.test.js` (Playwright,
-viewport 390 px). Les deux doivent passer avant chaque push.
+`node --test tests/server.test.js`, `node tests/ui.test.js` (Playwright,
+viewport 390 px) et `node tests/pwa.test.js` (installabilité Chrome). Les trois
+doivent passer avant chaque push.
 
 ## Suivi
 
 - [x] v1 : planning, revenus, réservations, notes, réglages, page gestionnaire, factures Booking
-- [ ] Installation dans le compte Google de Raphaël (copier-coller, voir README)
+- [x] Synchro robuste : annulation/changement de dates sans e-mail (absence du calendrier), retour auto
+- [x] Application installable : `docs/` (manifest + service worker + cadre vers Apps Script, `?k=` passé en #)
+- [ ] Activer GitHub Pages (Settings › Pages › /docs) — à faire par Raphaël, pas d'API disponible ici
+- [ ] Installation dans le compte Google de Raphaël (copier-coller, voir README ; connecteur Drive en panne le 27 oct.)
 - [ ] À valider sur ses vraies données : lecture des factures, liens iCal
 - [ ] Idées non faites : dépenses (ménage, charges), export comptable, flux iCal pour la gestionnaire

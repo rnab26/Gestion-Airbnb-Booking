@@ -3,6 +3,6 @@
   "private": true,
   "description": "Tableau de bord Airbnb + Booking (Google Apps Script)",
   "scripts": {
-    "test": "node --test tests/server.test.js && node tests/ui.test.js"
+    "test": "node --test tests/server.test.js && node tests/ui.test.js && node tests/pwa.test.js"
   }
 }

@@ -24,7 +24,7 @@ var SHEET_INVOICES = 'FacturesBooking';
 var RES_COLS = ['id', 'key', 'source', 'origin', 'status', 'hidden', 'code', 'guest',
   'guestsText', 'guestsCount', 'checkin', 'checkout', 'amountNet', 'amountGross',
   'paidByGuest', 'keepRevenue', 'note', 'sharedNote', 'locked', 'emailId',
-  'createdAt', 'updatedAt', 'seenAt'];
+  'createdAt', 'updatedAt', 'seenAt', 'autoStatus'];
 var NOTE_COLS = ['id', 'date', 'endDate', 'text', 'visible', 'author', 'createdAt', 'updatedAt'];
 var LOG_COLS = ['at', 'kind', 'ok', 'message'];
 var INVOICE_COLS = ['number', 'periodStart', 'periodEnd', 'sales', 'commission', 'paymentFees', 'total', 'emailId', 'readAt'];
@@ -47,7 +47,10 @@ var DEFAULT_SETTINGS = {
   managerShowGuestName: true,
   managerShowGuestCount: true,
   managerCanAddNotes: true,
-  managerPastDays: 30
+  managerPastDays: 30,
+  // Page installable (GitHub Pages) qui affiche l'application : les liens partagés
+  // passent par elle pour pouvoir « Installer l'application » depuis Chrome. Vide = liens directs.
+  appUrl: 'https://rnab26.github.io/Gestion-Airbnb-Booking/'
 };
 var SYNC_HOURS_ALLOWED = [1, 2, 4, 6, 12, 24];
 // Champs qu'une modification à la main protège contre la synchronisation.
@@ -76,6 +79,7 @@ function doGet(e) {
   var t = HtmlService.createTemplateFromFile('Index');
   t.bootJson = JSON.stringify(boot).replace(/</g, '\\u003c');
   return t.evaluate()
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL) // affichable dans l'application installable
     .setTitle(title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1');
 }
@@ -104,21 +108,24 @@ function install() {
     props.setProperty('installed', new Date().toISOString());
     installTrigger_(DEFAULT_SETTINGS.syncEveryHours);
     var ownerUrl = ownerUrl_();
+    var directUrl = directUrl_(PropertiesService.getScriptProperties().getProperty('ownerToken'));
     try {
       MailApp.sendEmail(Session.getEffectiveUser().getEmail(),
         'Ton lien propriétaire — Gestion location',
-        'Garde ce lien pour toi, il donne accès à tes revenus :\n\n' + ownerUrl +
-        '\n\nAstuce : ouvre-le sur ton téléphone puis « Ajouter à l\'écran d\'accueil ».');
+        'Garde ce lien pour toi, il donne accès à tes revenus.\n\n' +
+        'Application (à installer depuis Chrome : menu ⋮ › Installer l\'application) :\n' + ownerUrl +
+        '\n\nLien direct (si l\'application ne s\'ouvre pas) :\n' + directUrl);
     } catch (err) {
       // L'e-mail est un filet de sécurité, l'installation reste valide sans lui.
     }
-    return { ownerUrl: ownerUrl };
+    return { ownerUrl: ownerUrl, directUrl: directUrl };
   });
 }
 
 /** À lancer depuis l'éditeur si le lien propriétaire est perdu (il s'affiche dans le journal). */
 function afficherMonLien() {
-  Logger.log(ownerUrl_());
+  Logger.log('Application : ' + ownerUrl_());
+  Logger.log('Lien direct : ' + directUrl_(PropertiesService.getScriptProperties().getProperty('ownerToken')));
   return ownerUrl_();
 }
 
@@ -190,8 +197,10 @@ function ownerData_() {
     overlaps: findOverlaps_(rows),
     lastSync: lastSync,
     log: log,
-    managerUrl: baseUrl_() + '?k=' + props.getProperty('managerToken'),
+    managerUrl: shareUrl_(props.getProperty('managerToken')),
+    managerDirectUrl: directUrl_(props.getProperty('managerToken')),
     ownerUrl: ownerUrl_(),
+    ownerDirectUrl: directUrl_(props.getProperty('ownerToken')),
     sheetUrl: db_().getUrl(),
     version: APP_VERSION
   };
@@ -417,6 +426,9 @@ function saveSettings_(p) {
   var past = Number(p.managerPastDays);
   if (isNaN(past) || past < 0 || past > 365) throw new Error('Historique gestionnaire : entre 0 et 365 jours.');
   next.managerPastDays = Math.round(past);
+  var app = String(p.appUrl || '').trim();
+  if (app && !/^https:\/\/[^\s#?]+\/$/.test(app)) throw new Error('Adresse de l\'application : https://… se terminant par /, ou vide.');
+  next.appUrl = app;
   PropertiesService.getScriptProperties().setProperty('settings', JSON.stringify(next));
   if (next.syncEveryHours !== cur.syncEveryHours) installTrigger_(next.syncEveryHours);
 }
@@ -510,24 +522,29 @@ function fetchIcs_(url, label) {
 
 function applyIcs_(ctx, src, events) {
   var seen = {};
+  var booked = 0;
   events.forEach(function (ev) {
     if (!isYmd_(ev.start) || !isYmd_(ev.end) || ev.end <= ev.start) return;
     if (src === 'airbnb') {
       if (/not available|indisponible|blocked|bloqu/i.test(ev.summary || '')) return;
+      booked++;
       var m = ((ev.description || '') + ' ' + (ev.summary || '')).match(/\b(HM[A-Z0-9]{6,})\b/);
       var key = m ? 'airbnb:' + m[1] : 'airbnb-ical:' + (ev.uid || ev.start);
       var r = upsert_(ctx, key, { source: 'airbnb', origin: 'ical', status: 'confirmed' },
         { code: m ? m[1] : '', checkin: ev.start, checkout: ev.end });
+      revive_(ctx, r);
       r.seenAt = ctx.now;
       seen[key] = true;
       return;
     }
+    booked++;
     // Booking : l'iCal ne donne que des dates. On le rattache à la réservation
     // connue par e-mail qui arrive le même jour, pour récupérer le départ.
     var match = ctx.rows.filter(function (r) {
-      return r.source === 'booking' && r.origin === 'email' && r.status !== 'cancelled' && r.checkin === ev.start;
+      return r.source === 'booking' && r.origin === 'email' && (r.status !== 'cancelled' || r.autoStatus === 'absent') && r.checkin === ev.start;
     })[0];
     if (match) {
+      revive_(ctx, match);
       var placeholder = ctx.byKey['booking-ical:' + ev.start + '_' + ev.end];
       if (placeholder) mergePlaceholder_(match, placeholder);
       var locked = lockedSet_(match);
@@ -549,11 +566,12 @@ function applyIcs_(ctx, src, events) {
     pr.seenAt = ctx.now;
     seen[pkey] = true;
   });
+  reconcileMissing_(ctx, src, seen, booked);
   // Ce qui a disparu du calendrier (futur uniquement) : retiré, ou annulé s'il porte des saisies.
   ctx.rows = ctx.rows.filter(function (r) {
+    if (r.mergedInto) { delete ctx.byKey[r.key]; return false; }
     if (r.origin !== 'ical' || r.source !== src || seen[r.key]) return true;
     if (r.checkout && r.checkout < ctx.today) return true;
-    if (r.mergedInto) { delete ctx.byKey[r.key]; return false; }
     if (r.locked) {
       if (r.status !== 'cancelled') { r.status = 'cancelled'; r.updatedAt = ctx.now; ctx.counts.cancelled++; }
       return true;
@@ -561,6 +579,73 @@ function applyIcs_(ctx, src, events) {
     delete ctx.byKey[r.key];
     ctx.counts.removed++;
     return false;
+  });
+}
+
+/** Réservation annulée faute d'être dans le calendrier, qui y réapparaît : de nouveau confirmée. */
+function revive_(ctx, r) {
+  if (r.status === 'cancelled' && r.autoStatus === 'absent' && !lockedSet_(r).status) {
+    r.status = 'confirmed';
+    r.autoStatus = '';
+    r.updatedAt = ctx.now;
+    ctx.counts.updated++;
+  }
+}
+
+/**
+ * Réservations connues par e-mail mais absentes du calendrier de la plateforme
+ * (e-mail d'annulation ou de modification manqué) :
+ *  - Booking : si des dates inconnues sont apparues près de là, c'est un
+ *    changement de dates, on déplace la réservation ;
+ *  - sinon, une réservation future déjà vue dans le calendrier (ou connue depuis
+ *    plus de 48 h) qui n'y est plus est considérée annulée. Elle revient
+ *    automatiquement si elle réapparaît.
+ * Un calendrier vide alors que des séjours futurs sont connus est jugé suspect :
+ * on ne touche à rien.
+ */
+function reconcileMissing_(ctx, src, seen, booked) {
+  var horizon = addDays_(ctx.today, 330);
+  var nowMs = Date.parse(ctx.now);
+  var missing = ctx.rows.filter(function (r) {
+    return r.source === src && r.origin === 'email' && r.hidden !== '1' && r.status !== 'cancelled' &&
+      isYmd_(r.checkin) && r.checkin > ctx.today && r.checkin <= horizon && r.seenAt !== ctx.now;
+  });
+  if (!missing.length) return;
+  if (!booked) {
+    ctx.warnings.push('calendrier ' + src + ' vide alors que ' + missing.length + ' séjour(s) futur(s) sont connus : rien modifié');
+    return;
+  }
+  if (src === 'booking') {
+    var free = ctx.rows.filter(function (r) {
+      // Seules des dates apparues à cette synchro peuvent être un changement de dates.
+      return r.source === 'booking' && r.origin === 'ical' && seen[r.key] && !r.mergedInto && r.status !== 'cancelled' && r.createdAt === ctx.now;
+    });
+    missing = missing.filter(function (r) {
+      var near = free.filter(function (p) { return Math.abs(nightsBetween_(r.checkin, p.checkin) || nightsBetween_(p.checkin, r.checkin)) <= 60; });
+      if (near.length !== 1) return true;
+      var p = near[0];
+      var others = missing.filter(function (o) { return o !== r && Math.abs(nightsBetween_(o.checkin, p.checkin) || nightsBetween_(p.checkin, o.checkin)) <= 60; });
+      if (others.length) return true; // ambigu : on ne devine pas
+      var locked = lockedSet_(r);
+      if (!locked.checkin) r.checkin = p.checkin;
+      if (!locked.checkout) r.checkout = p.checkout;
+      mergePlaceholder_(r, p);
+      free.splice(free.indexOf(p), 1);
+      r.seenAt = ctx.now;
+      r.updatedAt = ctx.now;
+      ctx.counts.updated++;
+      ctx.warnings.push('Booking n° ' + r.code + ' : dates changées → ' + r.checkin + ' / ' + r.checkout);
+      return false;
+    });
+  }
+  missing.forEach(function (r) {
+    var known48h = r.createdAt && nowMs - Date.parse(r.createdAt) > 48 * 3600 * 1000;
+    if ((!r.seenAt && !known48h) || lockedSet_(r).status) return;
+    r.status = 'cancelled';
+    r.autoStatus = 'absent';
+    r.updatedAt = ctx.now;
+    ctx.counts.cancelled++;
+    ctx.warnings.push((src === 'airbnb' ? 'Airbnb ' : 'Booking n° ') + (r.code || '') + ' du ' + r.checkin + ' absente du calendrier : considérée annulée');
   });
 }
 
@@ -1225,8 +1310,18 @@ function baseUrl_() {
   return ScriptApp.getService().getUrl() || '';
 }
 
+function directUrl_(token) {
+  return baseUrl_() + '?k=' + token;
+}
+
+/** Lien à partager : via l'application installable si elle est réglée, sinon direct. */
+function shareUrl_(token) {
+  var app = getSettings_().appUrl;
+  return app ? app + '#' + directUrl_(token) : directUrl_(token);
+}
+
 function ownerUrl_() {
-  return baseUrl_() + '?k=' + PropertiesService.getScriptProperties().getProperty('ownerToken');
+  return shareUrl_(PropertiesService.getScriptProperties().getProperty('ownerToken'));
 }
 
 function newToken_() {
