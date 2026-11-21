@@ -6,12 +6,12 @@
 <style>
 :root{
   --bg:#f6f5f2;--card:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e4e2dc;--accent:#1f6f5c;--accent-ink:#fff;
-  --airbnb:#e0383e;--airbnb-soft:#ffc4c6;--booking:#2f6fe0;--booking-soft:#c4d6ff;--direct:#2f9d6a;--direct-soft:#c9ecd9;--blocked:#d2d2d6;
+  --airbnb:#e0383e;--airbnb-soft:#ffc4c6;--booking:#2f6fe0;--booking-soft:#c4d6ff;--direct:#2f9d6a;--direct-soft:#c9ecd9;--blocked:#d2d2d6;--blocked-bg:#ececee;
   --warn:#b26a00;--warn-soft:#fff3dc;--err:#c0392b;--err-soft:#fde4e1;--ok:#2f9d6a;--radius:14px;
 }
 @media (prefers-color-scheme: dark){
   :root{--bg:#141416;--card:#1f1f23;--ink:#f1f1f3;--muted:#a0a0a8;--line:#33333a;--accent:#3fb394;--accent-ink:#0d1f1a;
-  --airbnb-soft:#6b2a2d;--booking-soft:#24385f;--direct-soft:#1c3a2c;--blocked:#46464c;--warn-soft:#3d2e12;--err-soft:#47201c;}
+  --airbnb-soft:#6b2a2d;--booking-soft:#24385f;--direct-soft:#1c3a2c;--blocked:#46464c;--blocked-bg:#2c2c31;--warn-soft:#3d2e12;--err-soft:#47201c;}
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
@@ -46,14 +46,23 @@ nav.tabs button.on{color:var(--accent);font-weight:600}
 /* calendrier */
 .cal-head{display:flex;align-items:center;gap:6px;margin:6px 0}
 .cal-head .title{flex:1;text-align:center;font-weight:600;text-transform:capitalize}
-.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal{display:flex;flex-direction:column;gap:6px}
+.cal .dows,.cal .wk-days{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 .cal .dow{font-size:11px;text-align:center;color:var(--muted);padding:2px 0}
-.cal .day{min-height:58px;border-radius:8px;background:var(--card);border:1px solid var(--line);padding:3px 4px;font-size:11px;cursor:pointer;position:relative;overflow:hidden;text-align:left}
+.cal .wk{position:relative}
+.cal .day{min-height:68px;border-radius:12px;background:var(--card);border:1px solid var(--line);padding:6px;font-size:11px;cursor:pointer;position:relative;text-align:center;display:flex;flex-direction:column;align-items:center}
 .cal .day.out{opacity:.35}
-.cal .day.today{outline:2px solid var(--accent);outline-offset:-2px}
-.cal .day .n{font-weight:600;font-size:12px;position:relative}
-.cal .day .lab{position:relative;display:block;font-size:10.5px;line-height:1.2;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
-.cal .day .dot{position:absolute;right:4px;top:4px;width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.cal .day.past .n{color:var(--muted)}
+.cal .day .n{font-weight:600;font-size:14px;line-height:24px;width:26px;height:26px;border-radius:50%}
+.cal .day.today .n{background:var(--airbnb);color:#fff}
+.cal .day.blocked{background:var(--blocked-bg);border-color:transparent}
+.cal .day.blocked .n{text-decoration:line-through;color:var(--muted);font-weight:500}
+.cal .day .dot{position:absolute;right:6px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.cal .bar{position:absolute;top:34px;height:26px;border:0;padding:0 8px;color:#fff;font-size:12px;font-weight:600;line-height:26px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;z-index:1;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.cal .bar.s{border-top-left-radius:13px;border-bottom-left-radius:13px}
+.cal .bar.e{border-top-right-radius:13px;border-bottom-right-radius:13px}
+.cal .bar.l1{top:46px;height:18px;line-height:18px;font-size:10.5px}
+.cal .bar.unk{background-image:linear-gradient(90deg,transparent 60%,rgba(255,255,255,.35))}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 0}
 .sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:4px}
 /* listes */
@@ -390,34 +399,48 @@ function calendarHtml() {
   var ym = S.month, first = ym + '-01';
   var startOffset = (dow(first) + 6) % 7; // semaine commençant lundi
   var start = addDays(first, -startOffset);
-  var res = activeRes();
+  var res = activeRes().filter(function (r) { return r.checkin; }).sort(function (a, b) { return a.checkin < b.checkin ? -1 : 1; });
   var blk = isOwner() ? blockedRes() : [];
   var html = '<div class="cal-head"><button class="icon-btn" id="calPrev" aria-label="Mois précédent">‹</button><div class="title">' + monthTitle(ym) +
     '</div><button class="icon-btn" id="calNext" aria-label="Mois suivant">›</button></div>' +
-    '<div class="row" style="justify-content:center;margin-bottom:6px"><button class="btn small" id="calToday">Aujourd\'hui</button></div><div class="cal">' +
-    ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map(function (x) { return '<div class="dow">' + x + '</div>'; }).join('');
-  for (var i = 0; i < 42; i++) {
-    var d = addDays(start, i);
-    if (i === 35 && monthOf(d) !== ym) break;
-    var night = res.filter(function (r) { return occupies(r, d); })[0];
-    var dep = res.filter(function (r) { return r.checkout === d; })[0];
-    var arr = res.filter(function (r) { return r.checkin === d; })[0];
-    // Moitié gauche = matinée (départ éventuel), moitié droite = nuit occupée.
-    var left = dep ? srcSoft(dep.source) : (night && night.checkin !== d ? srcSoft(night.source) : 'transparent');
-    var right = night ? srcSoft(night.source) : 'transparent';
-    var bg = (left === 'transparent' && right === 'transparent') ? '' :
-      'background:linear-gradient(90deg,' + left + ' 0 50%,' + right + ' 50% 100%);border-color:transparent;';
-    var closed = !night && blk.filter(function (r) { return occupies(r, d); })[0];
-    if (closed) bg = 'background:var(--blocked);border-color:transparent;';
-    var lab = arr ? '<span class="lab" style="color:' + srcColor(arr.source) + '">▸ ' + esc(guestLabel(arr).split(' ')[0]) + '</span>'
-      : (dep && !night ? '<span class="lab muted">◂</span>' : (closed && (closed.checkin === d || d.slice(8) === '01') ? '<span class="lab muted">bloqué</span>' : ''));
-    var nn = notesOn(d).length;
-    html += '<button class="day' + (monthOf(d) !== ym ? ' out' : '') + (d === S.data.today ? ' today' : '') + '" data-day="' + d + '" style="' + bg + '">' +
-      '<span class="n">' + (+d.slice(8)) + '</span>' + lab + (nn ? '<span class="dot" title="' + nn + ' note(s)"></span>' : '') + '</button>';
+    '<div class="row" style="justify-content:center;margin-bottom:6px"><button class="btn small" id="calToday">Aujourd\'hui</button></div><div class="cal"><div class="dows">' +
+    ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map(function (x) { return '<div class="dow">' + x + '</div>'; }).join('') + '</div>';
+  for (var w = 0; w < 6; w++) {
+    var ws = addDays(start, w * 7), we = addDays(ws, 7);
+    if (w === 5 && monthOf(ws) !== ym) break;
+    html += '<div class="wk"><div class="wk-days">';
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(ws, i);
+      var busy = res.some(function (r) { return occupies(r, d); });
+      var closed = !busy && blk.some(function (r) { return occupies(r, d); });
+      var nn = notesOn(d).length;
+      html += '<button class="day' + (monthOf(d) !== ym ? ' out' : '') + (d === S.data.today ? ' today' : '') + (d < S.data.today ? ' past' : '') +
+        (closed ? ' blocked' : '') + '" data-day="' + d + '"' + (closed ? ' title="Bloqué"' : '') + '><span class="n">' + (+d.slice(8)) + '</span>' +
+        (nn ? '<span class="dot" title="' + nn + ' note(s)"></span>' : '') + '</button>';
+    }
+    html += '</div>';
+    // Bandeaux de séjour, à la façon d'Airbnb : du milieu du jour d'arrivée au milieu du jour de départ.
+    var lanes = [];
+    res.forEach(function (r) {
+      var end = r.checkout || addDays(r.checkin, 1);
+      if (end < ws || (end === ws && !r.checkout) || r.checkin >= we) return;
+      var lane = 0;
+      while (lanes[lane] && lanes[lane] > r.checkin) lane++;
+      lanes[lane] = end;
+      if (lane > 1) return;
+      var startsHere = r.checkin >= ws, endsHere = end < we;
+      var a = startsHere ? (utc(r.checkin) - utc(ws)) / 864e5 + 0.5 : 0;
+      var b = end < we ? (utc(end) - utc(ws)) / 864e5 + (r.checkout ? 0.5 : 0.95) : 7;
+      var gap = 'calc((100% - 36px) / 7 + 6px)';
+      html += '<button class="bar' + (startsHere ? ' s' : '') + (endsHere ? ' e' : '') + (lane ? ' l1' : '') + (r.checkout ? '' : ' unk') + '" data-res="' + esc(r.id) +
+        '" data-bar-start="' + r.checkin + '" style="background:' + srcColor(r.source) + ';left:calc(' + a + ' * ' + gap + ');width:calc(' + (b - a) + ' * ' + gap + ' - 6px)">' +
+        (b - a >= 1.4 ? esc(guestLabel(r)) + (r.checkout ? '' : ' · départ ?') : '') + '</button>'; // trop court : le nom s'affiche sur la ligne suivante
+    });
+    html += '</div>';
   }
-  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb-soft)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking-soft)"></i>Booking</span><span><i class="sw" style="background:var(--direct-soft)"></i>Direct</span><span><i class="sw" style="background:var(--blocked)"></i>Bloqué</span><span><i class="sw" style="border:1px solid var(--line)"></i>Libre</span>'
-    : '<span><i class="sw" style="background:var(--booking-soft)"></i>Occupé</span>') +
-    '<span><i class="sw" style="background:var(--warn);border-radius:50%"></i>Note</span><span>▸ arrivée</span><span>◂ départ</span></div>';
+  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking)"></i>Booking</span><span><i class="sw" style="background:var(--direct)"></i>Direct</span><span><i class="sw" style="background:var(--blocked-bg);border:1px solid var(--line)"></i>Bloqué</span><span><i class="sw" style="border:1px solid var(--line)"></i>Libre</span>'
+    : '<span><i class="sw" style="background:var(--booking)"></i>Occupé</span>') +
+    '<span><i class="sw" style="background:var(--warn);border-radius:50%"></i>Note</span></div>';
   return html;
 }
 function bindCalendar(root) {

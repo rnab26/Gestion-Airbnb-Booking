@@ -239,6 +239,13 @@ function createEnv(opts) {
     },
     Logger: { log: x => logs.push(x) }
   };
+  // Date du jour figée pour les tests (FAKE_NOW), sinon la vraie date : les données de test datent d'octobre 2026.
+  if (process.env.FAKE_NOW) {
+    // L'horloge avance normalement à partir de FAKE_NOW (deux synchros n'ont jamais la même heure).
+    const offset = Date.parse(process.env.FAKE_NOW) - Date.now();
+    class FakeDate extends Date { constructor(...a) { if (a.length) super(...a); else super(Date.now() + offset); } static now() { return Date.now() + offset; } }
+    ctx.Date = FakeDate;
+  }
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(codeFile, 'utf8'), ctx, { filename: path.basename(codeFile) });
   // Les objets passent par JSON comme avec google.script.run.
