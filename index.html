@@ -48,6 +48,33 @@
     f.allow = 'clipboard-write';
     root.appendChild(f);
   }
+  // Fichier reçu par « Partager › Gestion location » (Android), mis de côté par le service worker :
+  // transmis à l'application dès qu'elle se déclare prête (elle demande confirmation avant d'importer).
+  var shared = null;
+  if (/[?&]shared=1(&|$)/.test(location.search)) {
+    history.replaceState(null, '', location.pathname);
+    shared = ('caches' in window ? caches.open('gl-share').then(function (c) {
+      return c.match('./shared-file').then(function (r) {
+        if (!r) return null;
+        var name = decodeURIComponent(r.headers.get('X-Name') || 'export');
+        return r.blob().then(function (b) {
+          return new Promise(function (ok) {
+            var fr = new FileReader();
+            fr.onload = function () { ok({ name: name, data: String(fr.result).split(',')[1] || '' }); };
+            fr.onerror = function () { ok(null); };
+            fr.readAsDataURL(b);
+          });
+        }).then(function (file) { c.delete('./shared-file'); return file; });
+      });
+    }) : Promise.resolve(null)).catch(function () { return null; });
+  }
+  window.addEventListener('message', function (e) {
+    if (!shared || !e.data || e.data.type !== 'gl-ready' || !e.source) return;
+    if (!/^https:\/\/(script\.google\.com|[a-z0-9-]+\.googleusercontent\.com)$/.test(e.origin)) return;
+    var p = shared, src = e.source, origin = e.origin;
+    shared = null;
+    p.then(function (file) { if (file) src.postMessage({ type: 'gl-shared-file', name: file.name, data: file.data }, origin); });
+  });
   // Nouveau lien ouvert alors que l'application est déjà affichée : on recharge.
   window.addEventListener('hashchange', function () { location.reload(); });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
