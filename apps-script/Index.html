@@ -86,6 +86,19 @@ nav.tabs button.on{color:var(--accent);font-weight:600}
 .kpi .l{font-size:12px;color:var(--muted)}
 .mrow{display:grid;grid-template-columns:44px 1fr auto;gap:8px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--line);cursor:pointer}
 .mrow:last-child{border-bottom:0}
+details.mdet{margin:0;border-bottom:1px solid var(--line)}
+details.mdet:last-child{border-bottom:0}
+details.mdet>summary{list-style:none;color:var(--ink);font-size:inherit}
+details.mdet>summary::-webkit-details-marker{display:none}
+details.mdet>summary .mrow{border-bottom:0}
+details.mdet[open]>summary .mrow{font-weight:600}
+.pay{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:7px 4px 7px 10px;border-left:3px solid var(--line);margin:0 0 6px 4px;font-size:13px;cursor:pointer}
+.pay .muted{font-size:12px}
+.sumbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:6px 0 10px;font-size:14px;line-height:1.6}
+.money{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+.money b{text-align:right}
+.wa{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:#25D366;color:#fff;margin-left:6px;cursor:pointer;text-decoration:none;vertical-align:1px}
+.dowhint{display:block;font-size:12px;color:var(--muted);margin-top:3px}
 .mbar{height:10px;border-radius:5px;background:var(--bg);overflow:hidden}
 .mbar>i{display:block;height:100%;background:var(--accent);border-radius:5px}
 /* formulaires */
@@ -131,7 +144,7 @@ var S = { boot: BOOT, data: null, tab: 'planning', month: '', year: 0, resView: 
 var SRC = { airbnb: 'Airbnb', booking: 'Booking', direct: 'Direct' };
 var MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 var MONTHS_S = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
-var DOW = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+var DOW = ['Dim.', 'Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.'];
 
 // ---------- outils ----------
 function $(sel, root) { return (root || document).querySelector(sel); }
@@ -144,6 +157,35 @@ function fmtDate(s, withYear) {
   if (!s) return '?';
   var p = s.split('-');
   return DOW[dow(s)] + ' ' + (+p[2]) + ' ' + MONTHS_S[+p[1] - 1] + (withYear ? ' ' + p[0] : '');
+}
+// Lien WhatsApp d'un numéro complet (« +33 6… », « 0033… », « 06… » = France) ; vide pour « …9315 ».
+function waLink(phone) {
+  var s = String(phone || '').trim();
+  if (!s || /…|\.\.\./.test(s)) return '';
+  var d = s.replace(/[^\d+]/g, '');
+  if (/^00/.test(d)) d = d.slice(2);
+  else if (/^\+/.test(d)) d = d.slice(1);
+  else if (/^0\d{9}$/.test(d)) d = '33' + d.slice(1);
+  d = d.replace(/\D/g, '');
+  return d.length >= 8 ? 'https://wa.me/' + d : '';
+}
+function waChip(phone) {
+  var u = waLink(phone);
+  return u ? '<span class="wa" role="link" tabindex="0" data-wa="' + esc(u) + '">WhatsApp</span>' : '';
+}
+// Brut / commission / net d'un séjour (Booking : prix client ; Airbnb : versement avant frais de service hôte).
+function moneyRows(r) {
+  if (r.net === null || r.net === undefined || !r.counted) return '';
+  var approx = r.amountKind === 'facture' || r.amountKind === 'estimé';
+  var c = r.commissionAmt;
+  var rows = '';
+  if (c !== null && c !== undefined) {
+    var gross = r.net + c;
+    rows += '<span>' + (r.source === 'booking' ? 'Prix payé par le client' : r.source === 'airbnb' ? 'Versement brut (avant frais Airbnb)' : 'Brut') + '</span><b>' + fmtMoney(gross) + '</b>' +
+      '<span>' + (r.source === 'booking' ? 'Commission + frais de paiement Booking' : r.source === 'airbnb' ? 'Frais de service hôte Airbnb' : 'Commission') + (gross ? ' (' + (Math.round(c / gross * 1000) / 10).toString().replace('.', ',') + ' %)' : '') + '</span><b>− ' + fmtMoney(c) + '</b>';
+  }
+  rows += '<span><b>Net pour toi</b>' + (approx ? ' <span class="muted">(' + (r.amountKind === 'facture' ? 'part de la facture' : 'estimé') + ')</span>' : '') + '</span><b>' + (approx ? '≈ ' : '') + fmtMoney(r.net) + '</b>';
+  return '<div class="money">' + rows + '</div>';
 }
 function fmtMoney(n) {
   if (n === null || n === undefined || n === '' || isNaN(n)) return '—';
@@ -252,6 +294,7 @@ function load() {
     if (!S.month) S.month = monthOf(data.today);
     if (!S.year) S.year = +data.today.slice(0, 4);
     render();
+    announceShareReady();
   }, function (e) {
     S.loadError = cleanErr(e);
     render();
@@ -377,6 +420,14 @@ function banners() {
   return out;
 }
 
+// Boutons WhatsApp (dans les cartes cliquables aussi) : ouvre la conversation sans ouvrir la réservation.
+document.addEventListener('click', function (e) {
+  var w = e.target && e.target.closest ? e.target.closest('[data-wa]') : null;
+  if (!w) return;
+  e.preventDefault();
+  e.stopPropagation();
+  window.open(w.getAttribute('data-wa'), '_blank', 'noopener');
+}, true);
 function bindCommon(root) {
   root.querySelectorAll('[data-goto]').forEach(function (b) { b.onclick = function () { S.tab = b.getAttribute('data-goto'); render(); }; });
   root.querySelectorAll('[data-missing]').forEach(function (b) { b.onclick = function () { S.tab = 'resas'; S.resView = 'missing'; render(); }; });
@@ -463,10 +514,12 @@ function resCard(r, opts) {
     if (r.amountKind === 'estimé') badges += '<span class="badge warn">≈ estimé</span>';
     if (!r.checkout && r.status === 'confirmed') badges += '<span class="badge warn">Départ inconnu</span>';
   }
-  var amt = isOwner() ? '<span class="amt">' + (r.net === null || !r.counted ? '' : (r.amountKind === 'facture' || r.amountKind === 'estimé' ? '≈ ' : '') + fmtMoney(r.net)) + '</span>' : '';
-  var sub = fmtDate(r.checkin) + ' → ' + (r.checkout ? fmtDate(r.checkout) : '?') + (r.nights ? ' · ' + r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') +
-    (r.guestsText ? ' · ' + esc(r.guestsText) : '');
-  var contact = [r.phone ? '📞 ' + esc(r.phone) : '', r.location ? '🌍 ' + esc(r.location) : ''].filter(Boolean).join(' · ');
+  var hasNet = isOwner() && r.net !== null && r.counted;
+  var amt = isOwner() ? '<span class="amt">' + (hasNet ? (r.amountKind === 'facture' || r.amountKind === 'estimé' ? '≈ ' : '') + fmtMoney(r.net) : '') +
+    (hasNet && r.commissionAmt !== null && r.commissionAmt !== undefined ? '<span class="small muted" style="display:block;text-align:right;font-weight:400">comm. ' + fmtMoney(r.commissionAmt) + '</span>' : '') + '</span>' : '';
+  var sub = fmtDate(r.checkin) + ' → ' + (r.checkout ? fmtDate(r.checkout) : '?') + (r.nights ? ' · ' + r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '');
+  var contact = [r.guestsText ? '👥 ' + esc(r.guestsText) : (r.guestsCount ? '👥 ' + esc(r.guestsCount) + ' pers.' : ''), r.location ? '🌍 ' + esc(r.location) : '',
+    r.phone ? '📞 ' + esc(r.phone) + waChip(r.phone) : ''].filter(Boolean).join(' · ');
   return '<button class="item" data-res="' + esc(r.id) + '"><span class="bar" style="background:' + srcColor(r.source) + '"></span><span class="main"><span class="spread"><span class="t">' +
     esc(guestLabel(r)) + '</span>' + amt + '</span><span class="small muted" style="display:block">' + sub + '</span>' +
     (contact ? '<span class="small" style="display:block">' + contact + '</span>' : '') +
@@ -546,18 +599,36 @@ function viewRevenus() {
     '<div class="kpi"><div class="v">' + occ + ' %</div><div class="l">Occupation</div></div>' +
     '<div class="kpi"><div class="v">' + (t.nights ? fmtMoney(t.revenueWithNights / t.nights) : '—') + '</div><div class="l">Net moyen / nuit</div></div></div>' +
     (t.staysWithoutNights ? '<p class="help">' + t.staysWithoutNights + ' séjour(s) sans date de départ connue (Booking ne la donne pas pour les séjours passés) : leurs nuits ne sont pas comptées. Tu peux la saisir dans la réservation.</p>' : '');
-  var bs = t.bySource;
-  html += '<div class="card"><h3>Par plateforme</h3>' + ['airbnb', 'booking', 'direct'].map(function (k) {
-    return '<div class="spread" style="padding:4px 0"><span><i class="sw" style="background:' + srcColor(k) + '"></i>' + SRC[k] + '</span><b>' + fmtMoney(bs[k] || 0) + '</b></div>';
+  var bs = t.bySource, cs = t.commissionBySource || {}, gs = t.grossKnownBySource || {};
+  html += '<div class="card"><h3>Par plateforme</h3><p class="help" style="margin-top:-4px">Net = ce que tu touches, après commissions et frais.</p>' + ['airbnb', 'booking', 'direct'].map(function (k) {
+    var c = cs[k], g = gs[k];
+    return '<div style="padding:5px 0;border-bottom:1px solid var(--line)"><div class="spread"><span><i class="sw" style="background:' + srcColor(k) + '"></i>' + SRC[k] + '</span><b>' + fmtMoney(bs[k] || 0) + ' net</b></div>' +
+      (c ? '<div class="small muted">Brut ' + fmtMoney(g) + ' − commissions ' + fmtMoney(c) + ' (' + String(Math.round(c / g * 1000) / 10).replace('.', ',') + ' %)' +
+        (Math.abs(g - c - (bs[k] || 0)) > 1 ? ', sur les séjours au montant exact (' + fmtMoney(g - c) + ' de net)' : '') + '</div>' : '') + '</div>';
   }).join('') + (t.missing ? '<p class="small" style="color:var(--warn)">⚠ ' + t.missing + ' réservation(s) sans montant : total incomplet.</p>' : '') +
     (t.estimated ? '<p class="small muted">Dont ' + fmtMoney(t.estimated) + ' estimés (séjours Booking pas encore facturés).</p>' : '') + '</div>';
   html += bookingCard(y);
   var max = Math.max.apply(null, st.months.map(function (m) { return m.revenue; })) || 1;
-  html += '<div class="card"><h3>Par mois</h3><p class="help" style="margin-top:-4px">Montants nets (après commissions), répartis par nuit. Touche un mois pour voir ses réservations.</p>' +
+  var byId = {};
+  S.data.reservations.forEach(function (r) { byId[r.id] = r; });
+  html += '<div class="card"><h3>Par mois</h3><p class="help" style="margin-top:-4px">Montants nets (après commissions), répartis par nuit. Touche un mois pour voir le détail des paiements, séjour par séjour.</p>' +
     st.months.map(function (m, i) {
-      return '<div class="mrow" data-month="' + y + '-' + pad(i + 1) + '"><span class="small">' + MONTHS_S[i] + '</span><span><span class="mbar"><i style="width:' + Math.round(m.revenue / max * 100) + '%"></i></span>' +
+      var items = (m.items || []).slice().sort(function (a, b) { return ((byId[a.id] || {}).checkin || '9') < ((byId[b.id] || {}).checkin || '9') ? -1 : 1; });
+      return '<details class="mdet" data-mdet="' + y + '-' + pad(i + 1) + '"><summary><div class="mrow"><span class="small">' + MONTHS_S[i] + '</span><span><span class="mbar"><i style="width:' + Math.round(m.revenue / max * 100) + '%"></i></span>' +
         '<span class="small muted">' + m.nights + ' nuit' + (m.nights > 1 ? 's' : '') + ' · ' + Math.round(m.nights / m.days * 100) + ' %' + (m.missing ? ' · <span style="color:var(--warn)">' + m.missing + ' à compléter</span>' : '') +
-        '</span></span><b class="small">' + fmtMoney(m.revenue) + '</b></div>';
+        '</span></span><b class="small">' + fmtMoney(m.revenue) + '</b></div></summary>' +
+        (items.length ? items.map(function (it) {
+          var r = byId[it.id];
+          var label = r ? esc(guestLabel(r)) : 'Facture Booking : ventes sans réservation identifiée';
+          var dates = r ? fmtDate(r.checkin) + ' → ' + (r.checkout ? fmtDate(r.checkout) : '?') + (it.nights ? ' · ' + it.nights + ' nuit' + (it.nights > 1 ? 's' : '') + ' ce mois' + (r.nights && r.nights !== it.nights ? ' (sur ' + r.nights + ')' : '') : '') : '';
+          var approx = it.kind === 'facture' || it.kind === 'estimé';
+          var detail = it.commission !== null && it.commission !== undefined ? 'brut ' + fmtMoney(it.net + it.commission) + ' − comm. ' + fmtMoney(it.commission) + ' = net'
+            : approx ? (it.kind === 'facture' ? 'part de la facture Booking du mois' : 'estimé, facture pas encore reçue') : '';
+          return '<div class="pay"' + (r ? ' data-res="' + esc(r.id) + '"' : '') + ' style="border-left-color:' + srcColor(it.source) + '"><span><b>' + label + '</b> <span class="muted">· ' + esc(SRC[it.source] || it.source) + '</span>' +
+            (dates ? '<br><span class="muted">' + dates + '</span>' : '') + (detail ? '<br><span class="muted">' + detail + '</span>' : '') + '</span>' +
+            '<b style="text-align:right">' + (it.net === null ? '<span style="color:var(--warn)">à saisir</span>' : (approx ? '≈ ' : '') + fmtMoney(it.net)) + '</b></div>';
+        }).join('') : '<p class="small muted" style="margin:4px 0 8px 10px">Aucun séjour ce mois-ci.</p>') +
+        '<p style="margin:2px 0 8px 10px"><button class="btn small" data-month="' + y + '-' + pad(i + 1) + '">Voir ' + MONTHS[i] + ' dans le planning</button></p></details>';
     }).join('') + '</div>';
   return html;
 }
@@ -629,21 +700,25 @@ function editReservation(r) {
   var locked = r.lockedFields || [];
   var src = r.source || 'direct';
   var originTxt = r.origin === 'email' ? 'Lue dans les e-mails ' + (SRC[src] || '') + (r.code ? ' · code ' + esc(r.code) : '')
-    : r.origin === 'ical' ? 'Vue dans le calendrier ' + (SRC[src] || '') + ' (pas d\'e-mail correspondant)' : 'Saisie à la main';
+    : r.origin === 'ical' ? 'Vue dans le calendrier ' + (SRC[src] || '') + ' (pas d\'e-mail correspondant)'
+    : r.origin === 'export' ? 'Importée de l\'export Booking' + (r.code ? ' · n° ' + esc(r.code) : '') : 'Saisie à la main';
   var html = '<div class="spread"><h3>' + (isNew ? 'Nouvelle réservation' : esc(guestLabel(r))) + '</h3><button class="btn ghost small" data-close>✕</button></div>' +
-    (r.phone && /\d{8,}/.test(r.phone.replace(/\D/g, '')) ? '<div class="row" style="margin:4px 0 8px"><a class="btn small" style="text-decoration:none" href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">📞 Appeler</a>' +
-      '<a class="btn small" style="text-decoration:none" target="_blank" href="https://wa.me/' + esc(r.phone.replace(/\D/g, '')) + '">WhatsApp</a></div>' : '') +
     (isNew ? '' : '<p class="small muted" style="margin-top:-4px">' + originTxt + (locked.filter(function (f) { return f !== 'hidden'; }).length ? ' · modifiée à la main' : '') + '</p>') +
+    (isNew || r.status === 'blocked' ? '' : '<div class="sumbox" id="resSummary">' +
+      '<div>🟢 <b>' + fmtDate(r.checkin, true) + '</b> → 🔴 <b>' + (r.checkout ? fmtDate(r.checkout, true) : 'départ inconnu') + '</b>' + (r.nights ? ' · ' + r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') + '</div>' +
+      ((r.guestsText || r.guestsCount || r.location) ? '<div>' + [r.guestsText ? '👥 ' + esc(r.guestsText) : (r.guestsCount ? '👥 ' + esc(r.guestsCount) + ' personne(s)' : ''), r.location ? '🌍 ' + esc(r.location) : ''].filter(Boolean).join(' · ') + '</div>' : '') +
+      (r.phone ? '<div>📞 ' + (waLink(r.phone) ? '<a href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">' + esc(r.phone) + '</a>' : esc(r.phone)) + waChip(r.phone) + '</div>' : '') +
+      (isOwner() ? moneyRows(r) : '') + '</div>') +
     '<form id="resForm">' +
     (manual ? '<label class="f"><span>Plateforme</span><select name="source">' + ['direct', 'airbnb', 'booking'].map(function (k) { return '<option value="' + k + '"' + (src === k ? ' selected' : '') + '>' + (k === 'direct' ? 'Direct (sans plateforme)' : SRC[k]) + '</option>'; }).join('') + '</select></label>' : '') +
     '<label class="f"><span>Voyageur</span><input type="text" name="guest" value="' + esc(r.guest || '') + '" placeholder="Nom du voyageur"></label>' +
-    '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Arrivée</span><input type="date" name="checkin" required value="' + esc(r.checkin || '') + '"></label>' +
-    '<label class="f" style="flex:1"><span>Départ</span><input type="date" name="checkout" value="' + esc(r.checkout || '') + '"></label></div>' +
+    '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Arrivée</span><input type="date" name="checkin" required value="' + esc(r.checkin || '') + '"><span class="dowhint" data-dow="checkin">' + (r.checkin ? fmtDate(r.checkin, true) : '') + '</span></label>' +
+    '<label class="f" style="flex:1"><span>Départ</span><input type="date" name="checkout" value="' + esc(r.checkout || '') + '"><span class="dowhint" data-dow="checkout">' + (r.checkout ? fmtDate(r.checkout, true) : '') + '</span></label></div>' +
     '<label class="f"><span>Voyageurs</span><input type="text" name="guestsText" value="' + esc(r.guestsText || '') + '" placeholder="ex. 2 adultes, 1 enfant"></label>' +
     '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Téléphone</span><input type="tel" name="phone" value="' + esc(r.phone || '') + '" placeholder="+33 6 …"></label>' +
     '<label class="f" style="flex:1"><span>Provenance</span><input type="text" name="location" value="' + esc(r.location || '') + '" placeholder="Ville, pays"></label></div>' +
     (r.source === 'airbnb' && /^…\d{4}$/.test(r.phone || '') ? '<p class="help">Airbnb ne donne que les 4 derniers chiffres : le numéro complet est dans l\'appli Airbnb (réservation › voyageur).</p>' : '') +
-    (r.source === 'booking' && !r.phone ? '<p class="help">Booking ne met ni téléphone ni pays dans ses e-mails : ils sont dans Pulse (réservation › coordonnées).</p>' : '') +
+    (r.source === 'booking' && !r.phone ? '<p class="help">Booking ne met pas le téléphone dans ses e-mails ni dans le relevé des réservations : il est dans l\'extranet ou Pulse (réservation › coordonnées). Nom, pays et montants arrivent avec Réglages › Importer l\'export Booking.</p>' : '') +
     '<label class="f"><span>' + (src === 'airbnb' ? 'Montant net reçu (« Vous gagnez »)' : 'Montant net reçu (optionnel si prix client rempli)') + '</span><input type="text" inputmode="decimal" name="amountNet" value="' + esc(r.amountNet || '') + '" placeholder="ex. 399,41"></label>' +
     (src !== 'airbnb' ? '<label class="f"><span>Prix payé par le client' + (src === 'booking' ? ' (net calculé avec ' + esc(String(S.data.booking.ratePct).replace('.', ',')) + ' % de commission)' : '') + '</span><input type="text" inputmode="decimal" name="amountGross" value="' + esc(r.amountGross || '') + '" placeholder="ex. 450"></label>' : '') +
     (r.paidByGuest ? '<p class="small muted">Le voyageur a payé ' + fmtMoney(+r.paidByGuest) + ' au total (taxes comprises).</p>' : '') +
@@ -666,6 +741,11 @@ function editReservation(r) {
     m.querySelector('[data-close]').onclick = closeModal;
     var f = m.querySelector('#resForm');
     f.querySelector('[name=status]').onchange = function () { m.querySelector('#keepRow').style.display = this.value === 'cancelled' ? '' : 'none'; };
+    ['checkin', 'checkout'].forEach(function (k) {
+      f.querySelector('[name=' + k + ']').addEventListener('input', function () {
+        f.querySelector('[data-dow=' + k + ']').textContent = /^\d{4}-\d{2}-\d{2}$/.test(this.value) ? fmtDate(this.value, true) : '';
+      });
+    });
     f.onsubmit = function (e) {
       e.preventDefault();
       var fd = new FormData(f);
@@ -767,6 +847,7 @@ function viewSettings() {
     '<div class="card"><h3>Revenus</h3><label class="f"><span>Commission Booking totale (%)</span><input type="text" inputmode="decimal" name="bookingCommissionPct" value="' + esc(String(s.bookingCommissionPct).replace('.', ',')) + '" placeholder="Automatique"></label>' +
     '<p class="help">Laisse vide : le taux réel (commission + frais de paiement) est calculé sur tes factures Booking' + (d.booking.rateSource === 'factures' ? ', actuellement ' + esc(String(d.booking.ratePct).replace('.', ',')) + ' %' : ' (17 % en attendant la première facture)') +
     '. Il sert quand tu saisis le prix payé par un client Booking. Les montants Airbnb sont déjà nets.</p></div>' +
+    importCard() +
     '<div class="card"><h3>Synchronisation</h3><label class="f"><span>Fréquence automatique</span><select name="syncEveryHours">' + [1, 2, 4, 6, 12, 24].map(function (h) {
       return '<option value="' + h + '"' + (+s.syncEveryHours === h ? ' selected' : '') + '>' + (h === 24 ? 'Une fois par jour' : 'Toutes les ' + (h === 1 ? 'heures' : h + ' heures')) + '</option>';
     }).join('') + '</select></label>' +
@@ -803,6 +884,68 @@ function viewSettings() {
     '<p class="help">Version ' + esc(d.version) + '</p></div>' +
     '<div class="sticky-save"><button type="submit" class="btn primary" style="width:100%" id="setSave">Enregistrer les réglages</button></div></form>';
 }
+var IMPORT_ACCEPT = '.csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+function importCard() {
+  return '<div class="card" id="importCard"><h3>Importer l\'export Booking</h3>' +
+    '<p class="help">Complète les séjours Booking : nom, départ, pays, voyageurs, téléphone (s\'il est dans le fichier), annulations et montant net exact (prix − commission − frais de paiement au taux réel de tes factures). Tes saisies à la main ne sont jamais écrasées ; réimporter le même fichier ne crée pas de doublon.</p>' +
+    '<details><summary>Où trouver le fichier ?</summary><div class="help"><ol><li>Extranet admin.booking.com › Réservations</li><li>Date de : « Départ », du … au … (jusqu\'à 12 mois), sans filtre de statut (annulations comprises)</li><li>« Télécharger » › « Télécharger le relevé de réservations » (fichier .xls)</li></ol>Puis choisis-le ici. Sur Android, avec l\'application installée : depuis le fichier, Partager › Gestion location.</div></details>' +
+    '<label class="btn" style="display:inline-block;margin-top:8px">📄 Choisir le fichier…<input type="file" id="bkFile" accept="' + IMPORT_ACCEPT + '" style="display:none"></label>' +
+    '<div id="importRes">' + importResultHtml(S.data.lastImport) + '</div></div>';
+}
+function importResultHtml(li) {
+  if (!li) return '';
+  return '<div class="banner ' + (li.ok ? 'info' : 'warn') + '" id="importLast"><b>' + (li.ok ? '✓ ' : '⚠ ') + esc(li.message) + '</b><br><span class="small muted">' +
+    esc(li.file || 'fichier') + ' · ' + esc(ago(li.at)) + '</span>' +
+    (li.details && li.details.length ? '<ul class="small" style="margin:6px 0 0;padding-left:18px">' + li.details.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</div>';
+}
+function importBookingFile(file) {
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { toast('Fichier trop gros (10 Mo maximum).', 'error'); return; }
+  var rd = new FileReader();
+  rd.onload = function () { sendImport(file.name, String(rd.result).split(',')[1] || ''); };
+  rd.onerror = function () { toast('Lecture du fichier impossible.', 'error'); };
+  rd.readAsDataURL(file);
+}
+function sendImport(name, b64) {
+  if (S.busy) return;
+  S.busy = true;
+  var box = $('#importRes');
+  if (box) box.innerHTML = '<p class="small muted">Import de « ' + esc(name) + ' » en cours…</p>';
+  call('importBookingExport', { name: name, data: b64 }).then(function (data) {
+    S.busy = false;
+    S.data = data;
+    S.tab = 'reglages';
+    render();
+    var r = data.importResult;
+    toast((r.ok ? 'Import : ' : 'Import avec erreurs : ') + r.message, r.ok ? '' : 'error');
+    var card = $('#importCard');
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: 'center' });
+  }, function (e) {
+    S.busy = false;
+    var msg = cleanErr(e);
+    var b = $('#importRes');
+    if (b) b.innerHTML = '<div class="banner err" id="importLast"><b>⚠ Import impossible</b><br>' + esc(msg) + '</div>';
+    toast(msg, 'error');
+  });
+}
+// Fichier partagé sur Android (Partager › Gestion location) : l'application installable (docs/)
+// le transmet à cette page. Accepté seulement depuis son adresse, et après confirmation.
+var shareReady = false;
+function appOrigin() { var m = String((S.data && S.data.settings && S.data.settings.appUrl) || '').match(/^https?:\/\/[^\/]+/); return m ? m[0] : ''; }
+function announceShareReady() {
+  if (shareReady || !isOwner() || window.top === window || !appOrigin()) return;
+  shareReady = true;
+  try { window.top.postMessage({ type: 'gl-ready' }, appOrigin()); } catch (e) {}
+}
+window.addEventListener('message', function (e) {
+  if (!isOwner() || !S.data || e.source !== window.top || e.origin !== appOrigin()) return;
+  var m = e.data;
+  if (!m || m.type !== 'gl-shared-file' || typeof m.data !== 'string') return;
+  var name = String(m.name || 'export').slice(0, 120);
+  S.tab = 'reglages';
+  render();
+  confirmDialog('Importer « ' + name + ' » (export des réservations Booking) ?', 'Importer').then(function (ok) { if (ok) sendImport(name, m.data); });
+});
 function copyText(t) {
   function fallback() {
     var ta = document.createElement('textarea');
@@ -818,6 +961,7 @@ function copyText(t) {
 function bindSettings(root) {
   root.querySelectorAll('[data-copy]').forEach(function (b) { b.onclick = function () { copyText(b.getAttribute('data-copy')); }; });
   $('#syncBtn2', root).onclick = function () { syncNow(this); };
+  $('#bkFile', root).onchange = function () { var file = this.files && this.files[0]; this.value = ''; importBookingFile(file); };
   $('#updBtn', root).onclick = function () { act('checkUpdate', {}, 'Vérification terminée', this).then(function (ok) { if (ok && S.data.lastUpdate) toast(S.data.lastUpdate.message); }); };
   $('#regen', root).onclick = function () {
     confirmDialog('Changer le lien de la gestionnaire ? L\'ancien lien ne marchera plus : il faudra lui envoyer le nouveau.', 'Changer le lien', true).then(function (ok) {
@@ -856,7 +1000,7 @@ function renderManager(app) {
       '<div class="small">🟢 Arrivée ' + fmtDate(r.checkin) + ' à partir de ' + esc(s.checkinTime) + '</div>' +
       '<div class="small">🔴 Départ ' + (r.checkout ? fmtDate(r.checkout) + ' avant ' + esc(s.checkoutTime) : 'date à confirmer') + '</div>' +
       (r.guestsText ? '<div class="small muted">👥 ' + esc(r.guestsText) + '</div>' : '') +
-      (r.phone ? '<div class="small">📞 <a href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">' + esc(r.phone) + '</a></div>' : '') +
+      (r.phone ? '<div class="small">📞 <a href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">' + esc(r.phone) + '</a>' + waChip(r.phone) + '</div>' : '') +
       (r.checkout ? '<div class="small" style="margin-top:6px"><b>🧹 Ménage ' + fmtDate(r.checkout) + ' après ' + esc(s.checkoutTime) + '</b>' +
         (next ? ' — <span style="color:var(--err)">nouvelle arrivée le même jour à ' + esc(s.checkinTime) + '</span>' : '') + '</div>' : '') +
       (r.sharedNote ? '<div class="small" style="margin-top:6px">💬 ' + esc(r.sharedNote) + '</div>' : '') + '</div>';

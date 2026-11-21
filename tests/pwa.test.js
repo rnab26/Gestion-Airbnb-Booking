@@ -66,6 +66,34 @@ async function main() {
   await page.goto(BASE);
   const frame2 = await (await page.waitForSelector('iframe')).contentFrame();
   await frame2.waitForSelector('.cal', { timeout: 10000 });
+  // 4b. Partage Android « Partager › Gestion location » : POST multipart vers ./share (share_target),
+  // le service worker garde le fichier, la page le passe à l'application, qui demande confirmation.
+  const mf = JSON.parse(fs.readFileSync(path.join(DOCS, 'manifest.webmanifest'), 'utf8'));
+  assert.equal(mf.share_target.action, './share');
+  assert.equal(mf.share_target.params.files[0].name, 'file');
+  const settings = JSON.parse(env.props.settings);
+  settings.appUrl = BASE; // adresse de l'application installable (ici le serveur de test)
+  env.props.settings = JSON.stringify(settings);
+  const bx = require('./fixtures/booking-export');
+  await page.evaluate(() => {
+    const f = document.createElement('form');
+    f.id = 'shareForm'; f.method = 'POST'; f.action = 'share'; f.enctype = 'multipart/form-data';
+    const i = document.createElement('input');
+    i.type = 'file'; i.name = 'file'; i.id = 'shareIn';
+    f.appendChild(i);
+    document.body.appendChild(f);
+  });
+  await page.setInputFiles('#shareIn', { name: 'export-booking.csv', mimeType: 'text/csv', buffer: Buffer.from(bx.csv(), 'utf8') });
+  await Promise.all([page.waitForNavigation(), page.evaluate(() => document.getElementById('shareForm').submit())]);
+  const frame3 = await (await page.waitForSelector('iframe')).contentFrame();
+  await frame3.waitForSelector('.modal:has-text("Importer « export-booking.csv »")', { timeout: 10000 });
+  assert.equal(page.url(), BASE, 'adresse propre après le partage');
+  if (await page.isVisible('#install')) await page.click('#installNo'); // bandeau « Installer » (selon le navigateur)
+  await frame3.click('[data-a=yes]');
+  await frame3.waitForFunction(() => /Import : 8 nouvelle/.test((document.querySelector('#toast') || {}).textContent || ''), null, { timeout: 10000 });
+  assert.match(await frame3.textContent('#importLast'), /export-booking\.csv/);
+  assert.equal(await page.evaluate(() => caches.open('gl-share').then(c => c.keys()).then(k => k.length)), 0, 'fichier partagé effacé après usage');
+
   // 5. Lien invalide refusé (pas d'iframe vers un site arbitraire)
   const p2 = await (await browser.newContext()).newPage();
   await p2.goto(BASE + '#https://evil.example/exec?k=' + token);
