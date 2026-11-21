@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.5.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.5.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -1885,8 +1885,10 @@ function bookingExportAmounts_(records, invoices) {
   var noCommission = 0;
   records.forEach(function (x) {
     if (!(x.price > 0)) return;
+    // Annulée : le relevé garde le tarif d'origine ; seule une commission facturée (montant > 0)
+    // prouve que le client a payé quelque chose (vérifié sur le vrai relevé : 50 annulations sur 51 sans commission).
+    if (x.cancelled && !(x.commission > 0)) return;
     var c = x.commission !== null ? x.commission : x.commissionPct !== null ? x.price * x.commissionPct / 100 : null;
-    if (x.cancelled && !(c > 0)) return; // annulée sans frais pour le client : rien n'est dû
     amounts[x.number] = { gross: x.price, commission: c, net: 0 };
     var ym = (x.checkout || x.checkin).slice(0, 7);
     (groups[ym] = groups[ym] || []).push(x);
@@ -1972,6 +1974,8 @@ function applyBookingExport_(records, rows, invoices, now) {
       if (r.status !== status) { r.status = status; r.updatedAt = now; }
       if (r.autoStatus) { r.autoStatus = ''; r.updatedAt = now; }
     }
+    // Annulée sans frais : ne compte pas dans les revenus (corrige aussi un import précédent).
+    if (x.cancelled && !a && r.keepRevenue === '1' && !lockedSet_(r).keepRevenue) { r.keepRevenue = ''; r.updatedAt = now; }
     // Dates fermées vues dans le calendrier Booking pour ce séjour : rattachées à la réservation.
     var ph = ctx.byKey['booking-ical:' + r.checkin + '_' + r.checkout];
     if (ph && ph !== r && !ph.mergedInto) { mergePlaceholder_(r, ph); r.updatedAt = now; }

@@ -939,3 +939,23 @@ test('Revenus : commissions réelles (Airbnb frais hôte, Booking export) et dé
   assert.equal(marco.nights, 5);
   assert.equal(marco.net, byKey(d, 'booking:7100000102').net);
 });
+
+// Cas réel du 22 nov. 2026 : le relevé garde le tarif des annulations (commission vide) ;
+// la 1.5.0 les comptait comme facturées (taux de commission appliqué) → mois gonflés.
+test('Export Booking : annulation avec tarif mais sans commission = rien dû, et réimport corrige', () => {
+  const { env, owner } = setup();
+  withInvoice(env);
+  importFile(env, owner, bx.xls());
+  // État laissé par la 1.5.0 : annulation comptée dans les revenus.
+  const sh = env.sheet('Reservations'); const h = sh.data[0];
+  const i = sh.data.findIndex(x => x[h.indexOf('key')] === 'booking:7100000002');
+  sh.data[i][h.indexOf('keepRevenue')] = '1';
+  sh.data[i][h.indexOf('amountNet')] = '200';
+  assert.equal(byKey(env.api(owner, 'load'), 'booking:7100000002').counted, true);
+  const d = importFile(env, owner, bx.xls());
+  const r = byKey(d, 'booking:7100000002');
+  assert.equal(r.keepRevenue, '');
+  assert.equal(r.counted, false);
+  assert.match(d.importResult.message, /^0 nouvelle\(s\), 1 mise\(s\) à jour/);
+  assert.ok(d.importResult.details.some(x => /^Facture octobre 2026 : net identique/.test(x)));
+});
