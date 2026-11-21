@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.4.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.4.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -34,6 +34,9 @@ var LOG_COLS = ['at', 'kind', 'ok', 'message'];
 var INVOICE_COLS = ['number', 'periodStart', 'periodEnd', 'sales', 'commission', 'paymentFees', 'total', 'emailId', 'readAt'];
 // Taux utilisé tant qu'aucune facture Booking n'a été lue.
 var BOOKING_FALLBACK_PCT = 17;
+// Au-delà, une plage du calendrier Booking n'est pas un séjour : Booking fusionne une réservation
+// et les dates fermées qui la suivent (jusqu'à la fin de son calendrier, ~1 an) en une seule plage.
+var MAX_ICAL_STAY_NIGHTS = 45;
 
 // Valeurs par défaut des réglages : toutes modifiables depuis l'onglet Réglages.
 var DEFAULT_SETTINGS = {
@@ -695,6 +698,16 @@ function fetchIcs_(url, label) {
 function applyIcs_(ctx, src, events) {
   var seen = {};
   var booked = 0;
+  if (src === 'booking') {
+    // Départs aberrants déjà enregistrés (plage séjour + fermeture prise pour un séjour) : effacés.
+    ctx.rows.forEach(function (r) {
+      if (r.source === 'booking' && r.origin === 'email' && !lockedSet_(r).checkout && nightsBetween_(r.checkin, r.checkout) > MAX_ICAL_STAY_NIGHTS) {
+        r.checkout = '';
+        r.updatedAt = ctx.now;
+        ctx.counts.updated++;
+      }
+    });
+  }
   events.forEach(function (ev) {
     if (!isYmd_(ev.start) || !isYmd_(ev.end) || ev.end <= ev.start) return;
     if (src === 'airbnb') {
@@ -720,12 +733,22 @@ function applyIcs_(ctx, src, events) {
       return;
     }
     booked++;
+    var tooLong = nightsBetween_(ev.start, ev.end) > MAX_ICAL_STAY_NIGHTS;
     // Booking : l'iCal ne donne que des dates. On le rattache à la réservation
     // connue par e-mail qui arrive le même jour, pour récupérer le départ.
     var match = ctx.rows.filter(function (r) {
       return r.source === 'booking' && r.origin === 'email' && (r.status !== 'cancelled' || r.autoStatus === 'absent') && r.checkin === ev.start;
     })[0];
-    if (match) {
+    if (match && tooLong) {
+      // Séjour + fermeture fusionnés : le départ est inconnu, le reste de la plage est affiché bloqué.
+      revive_(ctx, match);
+      if (!lockedSet_(match).checkout && nightsBetween_(match.checkin, match.checkout) > MAX_ICAL_STAY_NIGHTS) {
+        match.checkout = '';
+        match.updatedAt = ctx.now;
+        ctx.counts.updated++;
+      }
+      match.seenAt = ctx.now;
+    } else if (match) {
       revive_(ctx, match);
       var placeholder = ctx.byKey['booking-ical:' + ev.start + '_' + ev.end];
       if (placeholder) mergePlaceholder_(match, placeholder);
@@ -738,7 +761,7 @@ function applyIcs_(ctx, src, events) {
       match.seenAt = ctx.now;
       return;
     }
-    var dup = ctx.rows.filter(function (r) {
+    var dup = !tooLong && ctx.rows.filter(function (r) {
       return r.source !== 'booking' && r.status !== 'cancelled' && r.checkin === ev.start && r.checkout === ev.end;
     })[0];
     if (dup) return; // dates importées d'Airbnb ou réservation directe déjà connue
@@ -817,7 +840,8 @@ function reconcileMissing_(ctx, src, seen, booked) {
   if (src === 'booking') {
     var free = ctx.rows.filter(function (r) {
       // Seules des dates apparues à cette synchro peuvent être un changement de dates.
-      return r.source === 'booking' && r.origin === 'ical' && seen[r.key] && !r.mergedInto && r.status !== 'cancelled' && r.createdAt === ctx.now;
+      return r.source === 'booking' && r.origin === 'ical' && seen[r.key] && !r.mergedInto && r.status !== 'cancelled' && r.createdAt === ctx.now &&
+        nightsBetween_(r.checkin, r.checkout) <= MAX_ICAL_STAY_NIGHTS;
     });
     missing = missing.filter(function (r) {
       var near = free.filter(function (p) { return Math.abs(nightsBetween_(r.checkin, p.checkin) || nightsBetween_(p.checkin, r.checkin)) <= 60; });
