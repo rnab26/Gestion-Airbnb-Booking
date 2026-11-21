@@ -29,7 +29,7 @@ test('Airbnb : e-mail de confirmation réel → code, voyageur, dates, net, tota
   const m = messages[0];
   const p = ctx.parseAirbnbConfirmation_(m.subject, m.body, '2026-09-09');
   assert.deepEqual(JSON.parse(JSON.stringify(p)), { code: 'HMTEST0001', guest: 'Jean Dupont', checkin: '2026-10-25', checkout: '2026-10-29',
-    guestsText: '3 adultes', guestsCount: '3', location: '', amountNet: '412.3', paidByGuest: '590' });
+    guestsText: '3 adultes', guestsCount: '3', location: '', amountNet: '412.3', paidByGuest: '590', commission: '77.7' });
   const p2 = ctx.parseAirbnbConfirmation_(messages[1].subject, messages[1].body, '2026-05-11');
   assert.equal(p2.guestsCount, '3');
   assert.equal(p2.checkout, '2026-06-02');
@@ -778,4 +778,164 @@ test('Booking : plage iCal séjour + fermeture (322 nuits) → départ inconnu, 
   r = byKey(d, 'booking:7400000001');
   assert.equal(r.checkout, '', 'ancien départ aberrant effacé');
   assert.ok(!d.reservations.some(x => x.status !== 'blocked' && x.nights > 45), 'aucun séjour de plus de 45 nuits');
+});
+
+// ---------- import de l'export des réservations Booking (1.5.0) ----------
+const bx = require('./fixtures/booking-export');
+function importFile(env, owner, buf, name) {
+  return env.api(owner, 'importBookingExport', { name: name || 'releve.xls', data: bx.b64(buf) });
+}
+function withInvoice(env) {
+  env.ctx.writeRows_('FacturesBooking', env.ctx.INVOICE_COLS, [bx.OCTOBER_INVOICE]);
+}
+
+test('Export Booking : relevé .xls (structure réelle), .xlsx et CSV lus pareil, colonnes reconnues', () => {
+  const { ctx } = createEnv();
+  const fromXls = ctx.parseBookingExport_(ctx.readTableFile_(bx.b64(bx.xls())));
+  const fromXlsSplit = ctx.parseBookingExport_(ctx.readTableFile_(bx.b64(bx.xls(null, { sstMax: 41 }))));
+  const fromCsv = ctx.parseBookingExport_(ctx.readTableFile_(bx.b64('﻿' + bx.csv())));
+  const fromXlsx = ctx.parseBookingExport_(ctx.readTableFile_(bx.b64(bx.xlsx())));
+  const j = x => JSON.parse(JSON.stringify(x));
+  assert.deepEqual(j(fromXls.errors), []);
+  assert.equal(fromXls.records.length, 8);
+  assert.deepEqual(j(fromXlsSplit.records), j(fromXls.records), 'textes coupés entre SST et CONTINUE');
+  assert.deepEqual(j(fromCsv.records), j(fromXls.records));
+  assert.deepEqual(j(fromXlsx.records), j(fromXls.records));
+  const raw = ctx.readTableFile_(bx.b64(bx.xls()));
+  assert.equal(raw[0].length, 26);
+  assert.equal(raw[0][3], 'Arrivée&nbsp;');
+  assert.equal(raw[1][0], '7100000103', 'numéro (nombre Excel) lu sans décimales');
+  const r = fromXls.records.find(x => x.number === '7100000101');
+  assert.deepEqual(j(r), { line: 3, number: '7100000101', guest: 'Claire Martin', checkin: '2026-10-01', checkout: '2026-10-04', cancelled: false,
+    price: 400, commission: 68, commissionPct: 17, people: '3', guestsText: '2 adultes, 1 enfant', country: 'France', phone: '' });
+  assert.equal(fromXls.records.find(x => x.number === '7100000102').commission, 110.5595, 'commission à 4 décimales, sans arrondi');
+  assert.equal(fromXls.records.find(x => x.number === '7100000104').cancelled, true);
+  // Variante anglaise, séparateur « , », dates jj/mm/aaaa, « Réservé par » seul, téléphone présent.
+  const en = [['Book number', 'Booked by', 'Check-in', 'Check-out', 'Status', 'Persons', 'Price', 'Commission amount', 'Booker country', 'Phone number'],
+    ['7100000201', 'Smith, John', '05/10/2026', '08/10/2026', 'ok', '2', '310.50 EUR', '46.58 EUR', 'gb', '+44 7700 900000']];
+  const p = ctx.parseBookingExport_(ctx.readTableFile_(bx.b64(bx.csv(en, ','))));
+  assert.equal(p.records[0].guest, 'John Smith');
+  assert.equal(p.records[0].checkin, '2026-10-05');
+  assert.equal(p.records[0].price, 310.5);
+  assert.equal(p.records[0].country, 'Royaume-Uni');
+  assert.equal(p.records[0].phone, '+44 7700 900000');
+  assert.equal(ctx.parseExportDate_('46299'), '2026-10-04', 'date Excel en numéro de série');
+  assert.equal(ctx.parseExportDate_('4 oct. 2026'), '2026-10-04');
+  assert.equal(ctx.parseExportDate_('Oct 4, 2026'), '2026-10-04');
+});
+
+test('Export Booking : rapprochement par numéro, montants nets exacts, total = facture du mois', () => {
+  const { env, owner } = setup();
+  withInvoice(env);
+  const before = env.api(owner, 'load');
+  assert.equal(byKey(before, 'booking:7100000001').checkout, '2026-11-07');
+  const n0 = before.reservations.length;
+  const d = importFile(env, owner, bx.xls(), 'Départ du 2025-11-22 au 2026-11-22.xls');
+  const res = d.importResult;
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.equal(res.message, '5 nouvelle(s), 3 mise(s) à jour, 0 annulée(s), 0 inchangée(s), 0 erreur(s)');
+  assert.ok(res.details.some(x => /^Facture octobre 2026 : net identique \(1 201,28 €\)$/.test(x)), res.details.join(' | '));
+  // Réservation connue par e-mail : complétée (nom, pays, voyageurs, montant ; le relevé Booking n'a pas le téléphone).
+  const r = byKey(d, 'booking:7100000001');
+  assert.equal(r.guest, 'Lucas Bernard');
+  assert.equal(r.location, 'Belgique');
+  assert.equal(r.guestsText, '2 adultes');
+  assert.equal(r.amountGross, '360');
+  assert.equal(r.amountKind, 'exact');
+  // Mois sans facture : frais de paiement au taux réel des factures (19,11 / 1 470,35).
+  assert.equal(r.net, Math.round((360 - 61.2 - 360 * 19.11 / 1470.35) * 100) / 100);
+  // Octobre : la somme des nets des départs d'octobre = net de la facture, au centime.
+  const oct = d.reservations.filter(x => x.source === 'booking' && x.counted && (x.checkout || '').slice(0, 7) === '2026-10');
+  assert.deepEqual(oct.map(x => x.code).sort(), ['7100000101', '7100000102', '7100000103', '7100000104']);
+  const sum = Math.round(oct.reduce((s, x) => s + x.net, 0) * 100) / 100;
+  assert.equal(sum, 1201.28);
+  assert.ok(oct.every(x => x.amountKind === 'exact'));
+  // Annulée mais facturée : comptée ; annulée sans frais : statut annulé, rien compté.
+  const fee = byKey(d, 'booking:7100000104');
+  assert.equal(fee.status, 'cancelled'); assert.equal(fee.keepRevenue, '1'); assert.ok(fee.net > 0);
+  const free = byKey(d, 'booking:7100000002');
+  assert.equal(free.status, 'cancelled'); assert.equal(free.counted, false);
+  // Dates fermées vues dans l'iCal (20-23 déc.) rattachées à la réservation importée.
+  assert.equal(byKey(d, 'booking-ical:2026-12-20_2026-12-23'), undefined);
+  assert.equal(byKey(d, 'booking:7100000106').origin, 'export');
+  assert.equal(d.reservations.length, n0 + 5 - 1);
+  assert.equal(d.lastImport.message, res.message);
+  assert.match(env.sheet('Journal').data.slice(-1)[0][3], /^5 nouvelle/);
+});
+
+test('Export Booking : réimporter le même fichier (.xls, CSV, .xlsx) ne crée aucun doublon', () => {
+  const { env, owner } = setup();
+  withInvoice(env);
+  const d1 = importFile(env, owner, bx.xls());
+  const d2 = importFile(env, owner, bx.xls());
+  assert.equal(d2.importResult.message, '0 nouvelle(s), 0 mise(s) à jour, 0 annulée(s), 8 inchangée(s), 0 erreur(s)');
+  const d3 = importFile(env, owner, bx.csv(), 'export.csv');
+  assert.equal(d3.importResult.message, '0 nouvelle(s), 0 mise(s) à jour, 0 annulée(s), 8 inchangée(s), 0 erreur(s)');
+  assert.equal(d3.reservations.length, d1.reservations.length);
+  const keys = d3.reservations.map(r => r.key);
+  assert.equal(new Set(keys).size, keys.length);
+  // Une synchro ensuite ne défait rien et ne recrée pas de doublon.
+  const d4 = env.api(owner, 'sync');
+  assert.equal(byKey(d4, 'booking:7100000001').amountNet, byKey(d1, 'booking:7100000001').amountNet);
+  assert.equal(byKey(d4, 'booking:7100000106').checkout, '2026-12-23');
+  assert.equal(d4.reservations.filter(r => r.checkin === '2026-12-20' && r.status !== 'cancelled').length, 1);
+  const d5 = importFile(env, owner, bx.xlsx(), 'export.xlsx');
+  assert.equal(d5.importResult.message, '0 nouvelle(s), 0 mise(s) à jour, 0 annulée(s), 8 inchangée(s), 0 erreur(s)');
+});
+
+test('Export Booking : une saisie à la main n’est jamais écrasée', () => {
+  const { env, owner } = setup();
+  let d = env.api(owner, 'load');
+  const r0 = byKey(d, 'booking:7100000003');
+  d = env.api(owner, 'saveReservation', Object.assign({}, r0, { guest: 'Hugo (saisi)', amountNet: '999', phone: '0600000000' }));
+  d = importFile(env, owner, bx.xls());
+  const r = byKey(d, 'booking:7100000003');
+  assert.equal(r.guest, 'Hugo (saisi)');
+  assert.equal(r.amountNet, '999');
+  assert.equal(r.phone, '0600000000');
+  assert.equal(r.location, 'Suisse', 'les champs non saisis sont remplis');
+  assert.equal(r.checkout, '2026-11-18');
+  assert.ok(d.importResult.details.some(x => /^2 valeur\(s\) saisie\(s\) à la main conservée\(s\)$/.test(x)), d.importResult.details.join(' | '));
+});
+
+test('Export Booking : erreurs claires (mauvais fichier, ligne illisible, .xls abîmé, gestionnaire)', () => {
+  const { env, owner, manager } = setup();
+  assert.throws(() => importFile(env, owner, 'Nom;Prénom\nA;B\n', 'x.csv'), /pas un export des réservations Booking.*colonnes lues : Nom, Prénom/);
+  assert.throws(() => importFile(env, owner, Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0, 0, 0, 0]), 'x.xls'), /Fichier Excel \.xls illisible/);
+  assert.throws(() => env.api(owner, 'importBookingExport', { name: 'x.csv', data: '' }), /Aucun fichier/);
+  assert.throws(() => env.api(manager, 'importBookingExport', { name: 'x.xls', data: bx.b64(bx.xls()) }), /Action non autorisée/);
+  const t = bx.table();
+  t[2][3] = '32/13/2026';
+  const d = importFile(env, owner, bx.xls(t));
+  assert.equal(d.importResult.ok, false);
+  assert.match(d.importResult.message, /1 erreur\(s\)$/);
+  assert.ok(d.importResult.details.some(x => /^ligne 3 \(7100000101\) : date d'arrivée illisible « 32\/13\/2026 »$/.test(x)), d.importResult.details.join(' | '));
+  assert.equal(byKey(d, 'booking:7100000102').code, '7100000102', 'le reste du fichier est importé');
+});
+
+test('Revenus : commissions réelles (Airbnb frais hôte, Booking export) et détail des paiements par mois', () => {
+  const { env, owner } = setup();
+  withInvoice(env);
+  const d = importFile(env, owner, bx.xls());
+  // Airbnb : « Frais de service hôte (15.5 % + TVA) -77,70 € » de l'e-mail = commission ; brut = net + commission.
+  const a = byKey(d, 'airbnb:HMTEST0001');
+  assert.equal(a.commission, '77.7');
+  assert.equal(a.commissionAmt, 77.7);
+  // Booking : commission + frais de paiement = prix − net.
+  const b = byKey(d, 'booking:7100000101');
+  assert.equal(Number(b.commission), Math.round((400 - b.net) * 100) / 100);
+  const y = d.stats['2026'];
+  assert.ok(y.total.commissionBySource.airbnb >= 77.7);
+  assert.ok(y.total.commissionBySource.booking > 0);
+  assert.equal(y.total.grossKnownBySource.booking, Math.round((y.total.bySource.booking + y.total.commissionBySource.booking) * 100) / 100);
+  // Octobre : chaque séjour apparaît avec ses nuits du mois ; la somme des lignes = total du mois.
+  const oct = y.months[9];
+  const sum = Math.round(oct.items.reduce((s, it) => s + (it.net || 0), 0) * 100) / 100;
+  assert.equal(sum, oct.revenue);
+  const split = oct.items.find(it => it.id === byKey(d, 'booking:7100000103').id); // 28 sept. → 1er oct. : 3 nuits en septembre
+  assert.equal(split, undefined);
+  assert.ok(y.months[8].items.some(it => it.id === byKey(d, 'booking:7100000103').id && it.nights === 3));
+  const marco = oct.items.find(it => it.id === byKey(d, 'booking:7100000102').id);
+  assert.equal(marco.nights, 5);
+  assert.equal(marco.net, byKey(d, 'booking:7100000102').net);
 });

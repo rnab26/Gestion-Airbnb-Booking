@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.4.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.5.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -28,7 +28,9 @@ var SHEET_INVOICES = 'FacturesBooking';
 var RES_COLS = ['id', 'key', 'source', 'origin', 'status', 'hidden', 'code', 'guest',
   'guestsText', 'guestsCount', 'checkin', 'checkout', 'amountNet', 'amountGross',
   'paidByGuest', 'keepRevenue', 'note', 'sharedNote', 'locked', 'emailId',
-  'createdAt', 'updatedAt', 'seenAt', 'autoStatus', 'phone', 'location'];
+  'createdAt', 'updatedAt', 'seenAt', 'autoStatus', 'phone', 'location', 'commission'];
+// commission : montant retenu par la plateforme (Booking : commission + frais de paiement ;
+// Airbnb : frais de service hôte), positif. Brut = net + commission.
 var NOTE_COLS = ['id', 'date', 'endDate', 'text', 'visible', 'author', 'createdAt', 'updatedAt'];
 var LOG_COLS = ['at', 'kind', 'ok', 'message'];
 var INVOICE_COLS = ['number', 'periodStart', 'periodEnd', 'sales', 'commission', 'paymentFees', 'total', 'emailId', 'readAt'];
@@ -161,6 +163,7 @@ var OWNER_ACTIONS = {
   saveSettings: function (p) { saveSettings_(p); return ownerData_(); },
   checkUpdate: function () { checkUpdate_(true); return ownerData_(); },
   setUpdaterCreds: function (p) { setUpdaterCreds_(p); return ownerData_(); },
+  importBookingExport: function (p) { var res = importBookingExport_(p); var d = ownerData_(); d.importResult = res; return d; },
   clearUpdaterCreds: function () { PropertiesService.getScriptProperties().deleteProperty('updaterCreds'); return ownerData_(); },
   regenerateManagerLink: function () {
     PropertiesService.getScriptProperties().setProperty('managerToken', newToken_());
@@ -222,6 +225,7 @@ function ownerData_() {
     sheetUrl: db_().getUrl(),
     version: APP_VERSION,
     lastUpdate: JSON.parse(props.getProperty('lastUpdate') || 'null'),
+    lastImport: JSON.parse(props.getProperty('lastImport') || 'null'),
     updaterReady: !!props.getProperty('updaterCreds'),
     authUrl: pendingAuthUrl_()
   };
@@ -885,7 +889,7 @@ function mergePlaceholder_(target, ph) {
 
 // Relecture complète demandée une fois par ces versions (ex. 1.1.2 : la 1.0 avait marqué
 // comme lus des e-mails qu'elle n'avait pas su décoder).
-var EMAIL_RESCAN_VERSION = '1.3.1'; // 1.3.1 : messages des clients Booking (nom, arrivée, départ)
+var EMAIL_RESCAN_VERSION = '1.5.0'; // 1.5.0 : frais de service hôte Airbnb (commission réelle) ; 1.3.1 : messages des clients Booking
 
 function scanEmails_(ctx) {
   var props = PropertiesService.getScriptProperties();
@@ -1040,7 +1044,7 @@ function handleAirbnbEmail_(ctx, m, ymd) {
     if (!p) { ctx.warnings.push('format Airbnb non reconnu : « ' + m.subject.slice(0, 60) + ' »'); return; }
     var r = upsert_(ctx, 'airbnb:' + p.code, { source: 'airbnb', origin: 'email', status: 'confirmed' }, {
       code: p.code, guest: p.guest, guestsText: p.guestsText, guestsCount: p.guestsCount, location: p.location,
-      amountNet: p.amountNet, paidByGuest: p.paidByGuest, emailId: m.id
+      amountNet: p.amountNet, paidByGuest: p.paidByGuest, commission: p.commission, emailId: m.id
     }, { checkin: p.checkin, checkout: p.checkout });
     if (r.origin === 'ical') r.origin = 'email';
     return;
@@ -1144,7 +1148,7 @@ function parseAirbnbConfirmation_(subject, body, emailYmd) {
     text.match(/details\/(HM[A-Z0-9]{6,})/);
   if (!cm) return null;
   var out = { code: cm[1], guest: sm[1].trim(), checkin: '', checkout: '', guestsText: '', guestsCount: '', location: '',
-    amountNet: '', paidByGuest: '' };
+    amountNet: '', paidByGuest: '', commission: '' };
   var dm = text.match(/(?:Arriv[ée]e\s+D[ée]part|Check-?in\s+Check-?out)\s*\n+\s*([^\n]+)/i);
   if (dm) {
     var d = extractDates_(dm[1]);
@@ -1170,6 +1174,13 @@ function parseAirbnbConfirmation_(subject, body, emailYmd) {
   if (am) { var a = parseAmount_(am[1]); if (a !== null) out.amountNet = String(a); }
   var pm = text.match(/TOTAL\s*\((?:EUR|€)\)\s*(?:€)?\s*(\d[\d   .,]*)/i);
   if (pm) { var b = parseAmount_(pm[1]); if (b !== null) out.paidByGuest = String(b); }
+  // « Frais de service hôte (15.5 % + TVA) -77,70 € » : la commission réelle Airbnb (dernier montant de la ligne).
+  var fm = text.match(/(?:Frais de service h[ôo]te|Host service fee)[^\n]*/i);
+  if (fm) {
+    var fa = fm[0].replace(/\([^)]*\)/g, '').match(/(\d[\d   .,]*\d|\d)\s*€?\s*$/);
+    var fv = fa ? parseAmount_(fa[1]) : null;
+    if (fv !== null) out.commission = String(Math.abs(fv));
+  }
   return out;
 }
 
@@ -1340,6 +1351,640 @@ function parseAmount_(raw) {
 }
 
 // =====================================================================
+// Import de l'export des réservations Booking (extranet › Réservations › Télécharger)
+// =====================================================================
+
+// Noms de colonnes reconnus, comparés sans accents, casse ni ponctuation (« % » devient « pct »).
+var BOOKING_EXPORT_COLS = {
+  number: ['numero de reservation', 'n de reservation', 'no de reservation', 'reservation number', 'booking number', 'book number', 'reservation id', 'numero de la reservation'],
+  guest: ['nom du client', 'nom des clients', 'noms des clients', 'nom s du des client s', 'nom s des client s', 'nom s du client', 'guest name s', 'guest names', 'guest name', 'nom du voyageur', 'nom des voyageurs'],
+  booker: ['reserve par', 'reservation effectuee par', 'booked by', 'booker name'],
+  checkin: ['arrivee', 'date d arrivee', 'check in', 'checkin', 'arrival', 'arrival date'],
+  checkout: ['depart', 'date de depart', 'check out', 'checkout', 'departure', 'departure date'],
+  status: ['statut', 'status', 'statut de la reservation', 'reservation status'],
+  price: ['prix', 'price', 'prix total', 'montant total', 'total price', 'tarif', 'montant'],
+  commission: ['montant de la commission', 'commission amount', 'montant commission', 'commission'],
+  commissionPct: ['pct comm', 'commission pct', 'pct de commission', 'pourcentage de commission', 'taux de commission', 'commission rate'],
+  people: ['personnes', 'nombre de personnes', 'people', 'persons', 'voyageurs', 'guests'],
+  adults: ['adultes', 'nombre d adultes', 'adults'],
+  children: ['enfants', 'nombre d enfants', 'children'],
+  country: ['pays du client', 'pays de la personne ayant reserve', 'booker country', 'guest country', 'pays', 'country'],
+  phone: ['numero de telephone', 'telephone', 'phone number', 'phone'],
+  cancelledOn: ['date d annulation', 'cancellation date']
+};
+var BOOKING_EXPORT_MAX_B64 = 14000000; // ≈ 10 Mo de fichier
+
+/** Action propriétaire : fichier (base64) → réservations Booking complétées. */
+function importBookingExport_(p) {
+  var name = str_(p && p.name, 120);
+  var data = String((p && p.data) || '').replace(/^data:[^,]*,/, '');
+  if (!data) throw new Error('Aucun fichier reçu.');
+  if (data.length > BOOKING_EXPORT_MAX_B64) throw new Error('Fichier trop gros (10 Mo maximum).');
+  var parsed = parseBookingExport_(readTableFile_(data));
+  if (!parsed.records.length && !parsed.errors.length) throw new Error('Aucune réservation dans ce fichier.');
+  var result = withLock_(function () {
+    var rows = readRows_(SHEET_RES, RES_COLS);
+    var out = applyBookingExport_(parsed.records, rows, readRows_(SHEET_INVOICES, INVOICE_COLS), nowIso_());
+    writeRows_(SHEET_RES, RES_COLS, out.rows);
+    return out.summary;
+  });
+  result.errors = parsed.errors.concat(result.errors);
+  var c = result;
+  var message = c.added + ' nouvelle(s), ' + c.updated + ' mise(s) à jour, ' + c.cancelled + ' annulée(s), ' +
+    c.unchanged + ' inchangée(s), ' + c.errors.length + ' erreur(s)';
+  var details = [];
+  if (c.kept) details.push(c.kept + ' valeur(s) saisie(s) à la main conservée(s)');
+  c.checks.forEach(function (k) {
+    details.push('Facture ' + k.label + ' : ' + (k.match ? 'net identique (' + fmtEur_(k.invoiceNet) + ')' :
+      'export ' + fmtEur_(k.exportNet) + ' / facture ' + fmtEur_(k.invoiceNet)));
+  });
+  details = details.concat(c.warnings, c.errors.slice(0, 15));
+  if (c.errors.length > 15) details.push('… et ' + (c.errors.length - 15) + ' autre(s) erreur(s)');
+  var last = { at: nowIso_(), ok: c.errors.length === 0, file: name, message: message, details: details };
+  PropertiesService.getScriptProperties().setProperty('lastImport', JSON.stringify(last));
+  appendLog_('import Booking', last.ok, message + (details.length ? ' | ' + details.join(' ; ') : ''));
+  return last;
+}
+
+/** Contenu d'un fichier (base64) → tableau de lignes : Excel .xls (relevé Booking), .xlsx, CSV ou page HTML enregistrée en .xls. */
+function readTableFile_(b64) {
+  var bytes;
+  try { bytes = Utilities.base64Decode(b64); } catch (e) { throw new Error('Fichier illisible.'); }
+  if (!bytes || !bytes.length) throw new Error('Fichier vide.');
+  var b0 = bytes[0] & 255, b1 = bytes[1] & 255;
+  if (b0 === 0x50 && b1 === 0x4B) return xlsxRows_(bytes);
+  if (b0 === 0xD0 && b1 === 0xCF) {
+    try { return xlsRows_(bytes); } catch (e) { throw new Error('Fichier Excel .xls illisible. Dans Booking, retélécharge le relevé (ou enregistre-le en .xlsx ou CSV).'); }
+  }
+  var text = bytesToText_(bytes);
+  if (/<table[\s>]/i.test(text)) return htmlTableRows_(text);
+  return csvRows_(text);
+}
+
+function bytesToText_(bytes) {
+  var b0 = bytes[0] & 255, b1 = bytes[1] & 255, b2 = bytes[2] & 255;
+  if (b0 === 0xFF && b1 === 0xFE) return Utilities.newBlob(bytes.slice(2)).getDataAsString('UTF-16LE');
+  if (b0 === 0xFE && b1 === 0xFF) return Utilities.newBlob(bytes.slice(2)).getDataAsString('UTF-16BE');
+  if (b0 === 0xEF && b1 === 0xBB && b2 === 0xBF) bytes = bytes.slice(3);
+  var t = Utilities.newBlob(bytes).getDataAsString('UTF-8');
+  if (t.indexOf('�') >= 0) t = Utilities.newBlob(bytes).getDataAsString('windows-1252');
+  return t;
+}
+
+/** CSV : séparateur deviné (« ; » , « , » ou tabulation), guillemets gérés. */
+function csvRows_(text) {
+  var t = String(text || '').replace(/^﻿/, '');
+  var first = (t.match(/^[^\r\n]*/) || [''])[0];
+  var counts = { ';': 0, ',': 0, '\t': 0 }, q = false;
+  for (var i = 0; i < first.length; i++) {
+    var ch = first.charAt(i);
+    if (ch === '"') q = !q; else if (!q && counts.hasOwnProperty(ch)) counts[ch]++;
+  }
+  var sep = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })[0];
+  var rows = [], row = [], cell = '', inQ = false;
+  for (var j = 0; j < t.length; j++) {
+    var c = t.charAt(j);
+    if (inQ) {
+      if (c === '"') { if (t.charAt(j + 1) === '"') { cell += '"'; j++; } else inQ = false; } else cell += c;
+    } else if (c === '"' && cell === '') inQ = true;
+    else if (c === sep) { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && t.charAt(j + 1) === '\n') j++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+/** Excel .xlsx (zip de fichiers XML) : première feuille, textes partagés résolus. */
+function xlsxRows_(bytes) {
+  var files = {};
+  try {
+    Utilities.unzip(Utilities.newBlob(bytes, 'application/zip', 'export.xlsx')).forEach(function (b) { files[b.getName()] = b; });
+  } catch (e) { throw new Error('Fichier Excel illisible.'); }
+  function text(n) { return files[n] ? files[n].getDataAsString('UTF-8') : ''; }
+  var shared = [];
+  text('xl/sharedStrings.xml').replace(/<si\b[^>]*>([\s\S]*?)<\/si>/g, function (_, si) { shared.push(xmlText_(si)); return ''; });
+  var path = 'xl/worksheets/sheet1.xml';
+  var sheetTag = text('xl/workbook.xml').match(/<sheet\b[^>]*\br:id="([^"]+)"/);
+  if (sheetTag) {
+    var rel = text('xl/_rels/workbook.xml.rels').match(new RegExp('<Relationship\\b[^>]*\\bId="' + sheetTag[1] + '"[^>]*>'));
+    var target = rel && rel[0].match(/\bTarget="([^"]+)"/);
+    if (target) path = target[1].charAt(0) === '/' ? target[1].slice(1) : 'xl/' + target[1].replace(/^\.\//, '');
+  }
+  var xml = text(path);
+  if (!xml) throw new Error('Feuille introuvable dans le fichier Excel.');
+  var rows = [];
+  xml.replace(/<row\b[^>]*>([\s\S]*?)<\/row>/g, function (_, inner) {
+    var row = [];
+    inner.replace(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g, function (__, attrs, body) {
+      var ref = (attrs.match(/\br="([A-Z]+)\d+"/) || [])[1];
+      var type = (attrs.match(/\bt="([^"]+)"/) || [])[1] || '';
+      var v = '';
+      body = body || '';
+      if (type === 'inlineStr') v = xmlText_(body);
+      else {
+        var vm = body.match(/<v>([\s\S]*?)<\/v>/);
+        v = vm ? xmlDecode_(vm[1]) : '';
+        if (type === 's') v = shared[Number(v)] || '';
+      }
+      row[ref ? colIndex_(ref) : row.length] = v;
+      return '';
+    });
+    for (var i = 0; i < row.length; i++) if (row[i] === undefined) row[i] = '';
+    rows.push(row);
+    return '';
+  });
+  return rows;
+}
+
+/**
+ * Excel 97-2003 (.xls, format BIFF8 dans un fichier OLE) : c'est ce que donne
+ * « Télécharger le relevé de réservations » de l'extranet Booking (vérifié le 22 nov. 2026).
+ * Lit la première feuille : textes (table partagée), nombres, formules.
+ */
+function xlsRows_(bytes) {
+  var u8 = [];
+  for (var i = 0; i < bytes.length; i++) u8.push(bytes[i] & 255);
+  var wb = cfbStream_(u8, ['Workbook', 'Book']);
+  if (!wb) throw new Error('Fichier Excel .xls illisible (classeur introuvable).');
+  function u16(p) { return wb[p] | (wb[p + 1] << 8); }
+  function u32(p) { return (wb[p] | (wb[p + 1] << 8) | (wb[p + 2] << 16)) + wb[p + 3] * 16777216; }
+  function num(p) { // double IEEE 754 (8 octets, petit-boutiste)
+    var lo = u32(p), hi = u32(p + 4);
+    var sign = hi >= 2147483648 ? -1 : 1, exp = Math.floor(hi / 1048576) % 2048, mant = (hi % 1048576) * 4294967296 + lo;
+    if (exp === 0) return sign * mant * Math.pow(2, -1074);
+    if (exp === 2047) return NaN;
+    return sign * (1 + mant / 4503599627370496) * Math.pow(2, exp - 1023);
+  }
+  function rk(v) {
+    var n;
+    if (v & 2) n = (v >> 2) | 0; // entier signé sur 30 bits
+    else { var hi = v - (v % 4); n = num8_(hi); }
+    return (v & 1) ? n / 100 : n;
+  }
+  function num8_(hi) { // double dont seuls les 32 bits de poids fort sont donnés
+    var sign = hi >= 2147483648 ? -1 : 1, exp = Math.floor(hi / 1048576) % 2048, mant = (hi % 1048576) * 4294967296;
+    if (exp === 0) return 0;
+    return sign * (1 + mant / 4503599627370496) * Math.pow(2, exp - 1023);
+  }
+  function numStr(n) { return Math.floor(n) === n ? String(n) : String(parseFloat(n.toPrecision(15))); }
+  // Enregistrements : [type u16][longueur u16][données]
+  var recs = [];
+  for (var p = 0; p + 4 <= wb.length;) {
+    var type = u16(p), len = u16(p + 2);
+    recs.push({ type: type, pos: p + 4, len: len });
+    p += 4 + len;
+  }
+  // Table des textes partagés (SST + CONTINUE).
+  var sst = [];
+  for (var k = 0; k < recs.length; k++) {
+    if (recs[k].type !== 0x00FC) continue;
+    var segs = [recs[k]];
+    for (var c = k + 1; c < recs.length && recs[c].type === 0x003C; c++) segs.push(recs[c]);
+    sst = readSst_(wb, segs);
+    break;
+  }
+  // Première feuille de calcul (BOUNDSHEET de type feuille).
+  var start = -1;
+  recs.some(function (r) {
+    if (r.type === 0x0085 && wb[r.pos + 5] === 0) { start = u32(r.pos); return true; }
+    return false;
+  });
+  var rows = [];
+  function put(r, col, v) { (rows[r] = rows[r] || [])[col] = v; }
+  var inSheet = false, pendingFormula = null;
+  for (var j = 0; j < recs.length; j++) {
+    var rec = recs[j], q = rec.pos;
+    if (!inSheet) { if (rec.type === 0x0809 && q - 4 === start) inSheet = true; continue; }
+    if (rec.type === 0x000A) break; // fin de la feuille
+    switch (rec.type) {
+      case 0x00FD: put(u16(q), u16(q + 2), sst[u32(q + 6)] || ''); break; // LABELSST
+      case 0x0204: case 0x00D6: put(u16(q), u16(q + 2), readXlStr_(wb, q + 6, true).s); break; // LABEL, RSTRING
+      case 0x0203: put(u16(q), u16(q + 2), numStr(num(q + 6))); break; // NUMBER
+      case 0x027E: put(u16(q), u16(q + 2), numStr(rk(u32(q + 6)))); break; // RK
+      case 0x00BD: // MULRK
+        var r0 = u16(q), c0 = u16(q + 2), n = (rec.len - 6) / 6;
+        for (var m = 0; m < n; m++) put(r0, c0 + m, numStr(rk(u32(q + 4 + m * 6 + 2))));
+        break;
+      case 0x0205: put(u16(q), u16(q + 2), wb[q + 7] ? '' : String(wb[q + 6] ? 'VRAI' : 'FAUX')); break; // BOOLERR
+      case 0x0006: // FORMULA : résultat déjà calculé
+        if (u16(q + 12) === 0xFFFF) {
+          if (wb[q + 6] === 0) pendingFormula = { r: u16(q), c: u16(q + 2) };
+          else if (wb[q + 6] === 1) put(u16(q), u16(q + 2), wb[q + 8] ? 'VRAI' : 'FAUX');
+        } else put(u16(q), u16(q + 2), numStr(num(q + 6)));
+        break;
+      case 0x0207: // STRING (texte d'une formule)
+        if (pendingFormula) { put(pendingFormula.r, pendingFormula.c, readXlStr_(wb, q, true).s); pendingFormula = null; }
+        break;
+    }
+  }
+  var out = [];
+  for (var y = 0; y < rows.length; y++) {
+    var row = rows[y] || [];
+    for (var x = 0; x < row.length; x++) if (row[x] === undefined) row[x] = '';
+    out.push(row);
+  }
+  return out;
+}
+
+/** Texte BIFF8 (XLUnicodeString) : longueur sur 2 octets (ou 1), drapeaux, caractères. */
+function readXlStr_(b, p, len16) {
+  var cch = len16 ? (b[p] | (b[p + 1] << 8)) : b[p];
+  p += len16 ? 2 : 1;
+  var flags = b[p++], high = flags & 1, runs = 0, ext = 0;
+  if (flags & 8) { runs = b[p] | (b[p + 1] << 8); p += 2; }
+  if (flags & 4) { ext = (b[p] | (b[p + 1] << 8) | (b[p + 2] << 16)) + b[p + 3] * 16777216; p += 4; }
+  var s = '';
+  for (var i = 0; i < cch; i++) {
+    s += String.fromCharCode(high ? (b[p] | (b[p + 1] << 8)) : b[p]);
+    p += high ? 2 : 1;
+  }
+  return { s: s, end: p + runs * 4 + ext };
+}
+
+/** Table SST répartie sur plusieurs enregistrements (CONTINUE) : un texte peut être coupé en deux. */
+function readSst_(b, segs) {
+  var si = 0, p = segs[0].pos + 8, end = segs[0].pos + segs[0].len;
+  var unique = (b[segs[0].pos + 4] | (b[segs[0].pos + 5] << 8) | (b[segs[0].pos + 6] << 16)) + b[segs[0].pos + 7] * 16777216;
+  function next() { si++; if (si >= segs.length) return false; p = segs[si].pos; end = p + segs[si].len; return true; }
+  function byte() { if (p >= end && !next()) throw new Error('SST tronquée'); return b[p++]; }
+  function skip(n) { while (n > 0) { if (p >= end && !next()) return; var k = Math.min(n, end - p); p += k; n -= k; } }
+  var out = [];
+  try {
+    while (out.length < unique) {
+      if (p >= end && !next()) break;
+      var cch = byte() | (byte() << 8);
+      var flags = byte(), high = flags & 1, runs = 0, ext = 0;
+      if (flags & 8) runs = byte() | (byte() << 8);
+      if (flags & 4) ext = (byte() | (byte() << 8) | (byte() << 16)) + byte() * 16777216;
+      var s = '';
+      for (var i = 0; i < cch; i++) {
+        if (p >= end) { if (!next()) break; high = b[p++] & 1; } // nouveau segment : drapeau répété
+        if (high) { var lo = b[p++]; s += String.fromCharCode(lo | (b[p++] << 8)); } else s += String.fromCharCode(b[p++]);
+      }
+      skip(runs * 4 + ext);
+      out.push(s);
+    }
+  } catch (e) { /* table incomplète : on garde ce qui a été lu */ }
+  return out;
+}
+
+/** Fichier composé OLE (CFB) → contenu du premier flux portant l'un des noms donnés. */
+function cfbStream_(b, names) {
+  function u16(p) { return b[p] | (b[p + 1] << 8); }
+  function u32(p) { return (b[p] | (b[p + 1] << 8) | (b[p + 2] << 16)) + b[p + 3] * 16777216; }
+  var ssz = 1 << u16(30), mssz = 1 << u16(32);
+  var cutoff = u32(56), miniFatStart = u32(60), dirStart = u32(48);
+  var END = 0xFFFFFFFE;
+  function sec(n) { return (n + 1) * ssz; }
+  // Table d'allocation (FAT), via la DIFAT de l'en-tête puis ses secteurs d'extension.
+  var fatSecs = [];
+  for (var i = 0; i < 109; i++) { var s = u32(76 + i * 4); if (s < 0xFFFFFFFA) fatSecs.push(s); }
+  var dif = u32(68), guard = 0;
+  while (dif < 0xFFFFFFFA && guard++ < 1000) {
+    for (var d = 0; d < ssz / 4 - 1; d++) { var s2 = u32(sec(dif) + d * 4); if (s2 < 0xFFFFFFFA) fatSecs.push(s2); }
+    dif = u32(sec(dif) + ssz - 4);
+  }
+  var fat = [];
+  fatSecs.forEach(function (fs) { for (var e = 0; e < ssz / 4; e++) fat.push(u32(sec(fs) + e * 4)); });
+  function chain(start) {
+    var out = [], n = start, g = 0;
+    while (n !== END && n < fat.length && g++ < 1000000) { out.push(n); n = fat[n]; }
+    return out;
+  }
+  function readChain(start, size) {
+    var out = [];
+    chain(start).forEach(function (n) { var o = sec(n); for (var k = 0; k < ssz; k++) out.push(b[o + k]); });
+    return size === undefined ? out : out.slice(0, size);
+  }
+  var dir = readChain(dirStart);
+  var entries = [];
+  for (var off = 0; off + 128 <= dir.length; off += 128) {
+    var nl = dir[off + 64] | (dir[off + 65] << 8), name = '';
+    for (var c = 0; c + 1 < nl - 1; c += 2) name += String.fromCharCode(dir[off + c] | (dir[off + c + 1] << 8));
+    entries.push({ name: name, type: dir[off + 66],
+      start: (dir[off + 116] | (dir[off + 117] << 8) | (dir[off + 118] << 16)) + dir[off + 119] * 16777216,
+      size: (dir[off + 120] | (dir[off + 121] << 8) | (dir[off + 122] << 16)) + dir[off + 123] * 16777216 });
+  }
+  var root = entries[0];
+  var target = null;
+  names.some(function (n) { target = entries.filter(function (e) { return e.type === 2 && e.name === n; })[0]; return !!target; });
+  if (!target || !root) return null;
+  if (target.size >= cutoff) return readChain(target.start, target.size);
+  // Petit flux : dans le « mini-flux » (secteurs de 64 octets).
+  var ministream = readChain(root.start, root.size);
+  var minifat = [];
+  var mf = readChain(miniFatStart);
+  for (var q = 0; q + 3 < mf.length; q += 4) minifat.push((mf[q] | (mf[q + 1] << 8) | (mf[q + 2] << 16)) + mf[q + 3] * 16777216);
+  var out = [], m = target.start, gm = 0;
+  while (m !== END && m < minifat.length && gm++ < 1000000) {
+    for (var z = 0; z < mssz; z++) out.push(ministream[m * mssz + z]);
+    m = minifat[m];
+  }
+  return out.slice(0, target.size);
+}
+
+function colIndex_(letters) {
+  var n = 0;
+  for (var i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n - 1;
+}
+
+function xmlText_(s) {
+  var out = '';
+  String(s).replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').replace(/<t\b[^>]*>([\s\S]*?)<\/t>/g, function (_, t) { out += t; return ''; });
+  return xmlDecode_(out);
+}
+
+function xmlDecode_(s) {
+  return String(s).replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, function (_, e) {
+    var k = e.toLowerCase();
+    if (k.charAt(0) === '#') return String.fromCharCode(k.charAt(1) === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10));
+    return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }[k];
+  });
+}
+
+/** Page HTML enregistrée en .xls (tableau) → lignes. */
+function htmlTableRows_(html) {
+  var rows = [];
+  String(html).replace(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi, function (_, tr) {
+    var row = [];
+    tr.replace(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi, function (__, td) {
+      row.push(xmlDecode_(td.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim());
+      return '';
+    });
+    rows.push(row);
+    return '';
+  });
+  return rows;
+}
+
+function normCol_(s) {
+  return stripAccents_(xmlDecode_(String(s || '')).toLowerCase()).replace(/%/g, ' pct ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function mapExportHeader_(row) {
+  var norm = (row || []).map(normCol_);
+  var map = {};
+  Object.keys(BOOKING_EXPORT_COLS).forEach(function (k) {
+    var names = BOOKING_EXPORT_COLS[k];
+    for (var a = 0; a < names.length; a++) {
+      var i = norm.indexOf(names[a]);
+      if (i >= 0) { map[k] = i; return; }
+    }
+  });
+  return map;
+}
+
+/**
+ * Lignes du fichier → réservations lues. Erreurs ligne par ligne, sans bloquer le reste.
+ * Lève une erreur claire si le fichier n'est pas un export des réservations Booking.
+ */
+function parseBookingExport_(table) {
+  var hi = -1, map = null;
+  for (var i = 0; i < Math.min(table.length, 15); i++) {
+    var m = mapExportHeader_(table[i]);
+    if (m.number !== undefined && (m.checkin !== undefined || m.price !== undefined)) { hi = i; map = m; break; }
+  }
+  if (hi < 0) {
+    var seen = (table[0] || []).filter(function (x) { return String(x).trim(); }).slice(0, 10).join(', ');
+    throw new Error('Ce fichier n\'est pas un export des réservations Booking : colonne « Numéro de réservation » introuvable' +
+      (seen ? ' (colonnes lues : ' + seen + ')' : '') + '.');
+  }
+  function cell(row, k) { return map[k] === undefined ? '' : String(row[map[k]] === undefined || row[map[k]] === null ? '' : row[map[k]]).trim(); }
+  var data = table.slice(hi + 1);
+  // Dates « 10/02/2026 » : jour/mois (Europe) sauf si une date du fichier n'a de sens qu'en mois/jour.
+  var us = data.some(function (row) {
+    return ['checkin', 'checkout'].some(function (k) {
+      var d = cell(row, k).match(/^(\d{1,2})\/(\d{1,2})\/\d{4}/);
+      return d && Number(d[2]) > 12 && Number(d[1]) <= 12;
+    });
+  });
+  var records = [], errors = [], done = {};
+  data.forEach(function (row, n) {
+    var line = hi + n + 2;
+    if (!row.join('').trim()) return;
+    var rawNum = cell(row, 'number');
+    var num = /^\d(\.\d+)?e\+?\d+$/i.test(rawNum) ? Number(rawNum).toFixed(0) : rawNum.replace(/\.0+$/, '').replace(/[\s.]/g, '');
+    if (!/^\d{6,14}$/.test(num)) {
+      if (cell(row, 'checkin') || cell(row, 'price')) errors.push('ligne ' + line + ' : numéro de réservation illisible « ' + rawNum + ' »');
+      return; // ligne de total ou vide
+    }
+    if (done[num]) { errors.push('ligne ' + line + ' : réservation ' + num + ' en double, ignorée'); return; }
+    var ci = parseExportDate_(cell(row, 'checkin'), us);
+    var co = parseExportDate_(cell(row, 'checkout'), us);
+    if (!ci) { errors.push('ligne ' + line + ' (' + num + ') : date d\'arrivée illisible « ' + cell(row, 'checkin') + ' »'); return; }
+    if (cell(row, 'checkout') && !co) errors.push('ligne ' + line + ' (' + num + ') : date de départ illisible « ' + cell(row, 'checkout') + ' »');
+    if (co && co <= ci) co = '';
+    var rawPrice = cell(row, 'price');
+    var price = exportAmount_(rawPrice);
+    if (rawPrice && price === null) { errors.push('ligne ' + line + ' (' + num + ') : prix illisible « ' + rawPrice + ' »'); return; }
+    var adults = exportInt_(cell(row, 'adults')), children = exportInt_(cell(row, 'children')), people = exportInt_(cell(row, 'people'));
+    if (!people && adults) people = adults + (children || 0);
+    var guestsText = adults ? adults + ' adulte' + (adults > 1 ? 's' : '') + (children ? ', ' + children + ' enfant' + (children > 1 ? 's' : '') : '')
+      : people ? people + ' voyageur' + (people > 1 ? 's' : '') : '';
+    done[num] = true;
+    records.push({
+      line: line,
+      number: num,
+      guest: cleanGuestName_(cell(row, 'guest') || cell(row, 'booker')),
+      checkin: ci,
+      checkout: co,
+      cancelled: /annul|cancel/i.test(cell(row, 'status')) || !!cell(row, 'cancelledOn'),
+      price: price,
+      commission: exportAmount_(cell(row, 'commission')),
+      commissionPct: exportAmount_(cell(row, 'commissionPct')),
+      people: people ? String(people) : '',
+      guestsText: guestsText,
+      country: countryName_(cell(row, 'country')),
+      phone: cell(row, 'phone').replace(/^'/, '').slice(0, 40)
+    });
+  });
+  return { records: records, errors: errors };
+}
+
+/** Montant d'un export, sans arrondi (« 113.5260 EUR » : 4 décimales pour les commissions Booking). */
+function exportAmount_(v) {
+  var s = String(v || '').replace(/%/g, '').replace(/\b[A-Z]{3}\b/g, '').replace(/[\s  €]/g, '');
+  if (!s) return null;
+  if (/^-?\d+\.\d+$/.test(s)) return Number(s);
+  if (/^-?\d+,\d+$/.test(s) && !/^-?\d{1,3},\d{3}$/.test(s)) return Number(s.replace(',', '.'));
+  return parseAmount_(s);
+}
+
+function exportInt_(v) {
+  var n = parseInt(String(v || '').replace(/\D+$/, ''), 10);
+  return isNaN(n) || n < 0 ? 0 : n;
+}
+
+/** « Dupont, Jean » → « Jean Dupont » ; plusieurs voyageurs : le premier. */
+function cleanGuestName_(v) {
+  var s = String(v || '').split(/\s*[;\n|]\s*/)[0].replace(/\s+/g, ' ').trim();
+  var m = s.match(/^([^,]+),\s*([^,]+)$/);
+  if (m) s = m[2] + ' ' + m[1];
+  return s.slice(0, 120);
+}
+
+/** Date d'un export : 2026-10-01, 01/10/2026, 1 oct. 2026, Oct 1, 2026 ou numéro de série Excel. */
+function parseExportDate_(v, us) {
+  var s = String(v === undefined || v === null ? '' : v).trim();
+  if (!s) return '';
+  var m;
+  function ok(y, mo, d) { return y >= 2000 && y <= 2100 && mo >= 1 && mo <= 12 && d >= 1 && d <= daysInMonth_(y, mo) ? ymd_(y, mo, d) : ''; }
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return ok(+m[1], +m[2], +m[3]);
+  if ((m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})/))) return us ? ok(+m[3], +m[1], +m[2]) : ok(+m[3], +m[2], +m[1]);
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    var d = new Date(Math.round((Number(s) - 25569) * 86400000));
+    return ok(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  }
+  if ((m = s.match(/(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\.?,?\s+(\d{4})/)) && monthNum_(m[2])) return ok(+m[3], monthNum_(m[2]), +m[1]);
+  if ((m = s.match(/([A-Za-zÀ-ÿ]+)\.?\s+(\d{1,2}),?\s+(\d{4})/)) && monthNum_(m[1])) return ok(+m[3], monthNum_(m[1]), +m[2]);
+  return '';
+}
+
+var COUNTRIES_FR_ = {
+  fr: 'France', il: 'Israël', be: 'Belgique', ch: 'Suisse', lu: 'Luxembourg', mc: 'Monaco', de: 'Allemagne', at: 'Autriche',
+  nl: 'Pays-Bas', gb: 'Royaume-Uni', uk: 'Royaume-Uni', ie: 'Irlande', es: 'Espagne', pt: 'Portugal', it: 'Italie', gr: 'Grèce',
+  pl: 'Pologne', cz: 'Tchéquie', sk: 'Slovaquie', hu: 'Hongrie', ro: 'Roumanie', bg: 'Bulgarie', hr: 'Croatie', si: 'Slovénie',
+  rs: 'Serbie', ua: 'Ukraine', ru: 'Russie', se: 'Suède', no: 'Norvège', dk: 'Danemark', fi: 'Finlande', is: 'Islande',
+  ee: 'Estonie', lv: 'Lettonie', lt: 'Lituanie', mt: 'Malte', cy: 'Chypre', tr: 'Turquie', us: 'États-Unis', ca: 'Canada',
+  mx: 'Mexique', br: 'Brésil', ar: 'Argentine', cl: 'Chili', co: 'Colombie', au: 'Australie', nz: 'Nouvelle-Zélande',
+  ma: 'Maroc', dz: 'Algérie', tn: 'Tunisie', eg: 'Égypte', za: 'Afrique du Sud', sn: 'Sénégal', ci: 'Côte d\'Ivoire',
+  cn: 'Chine', jp: 'Japon', kr: 'Corée du Sud', in: 'Inde', sg: 'Singapour', th: 'Thaïlande', ae: 'Émirats arabes unis',
+  sa: 'Arabie saoudite', qa: 'Qatar', lb: 'Liban', jo: 'Jordanie'
+};
+
+function countryName_(v) {
+  var s = String(v || '').trim();
+  if (/^[A-Za-z]{2}$/.test(s)) return COUNTRIES_FR_[s.toLowerCase()] || s.toUpperCase();
+  return s.slice(0, 80);
+}
+
+function fmtEur_(n) {
+  var parts = (Math.round(Number(n) * 100) / 100).toFixed(2).split('.');
+  return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ',' + parts[1] + ' €';
+}
+
+/**
+ * Montant net de chaque réservation de l'export : prix − commission (lue dans l'export)
+ * − frais de paiement. Frais : ceux de la facture du mois de départ, répartis au centime
+ * au prorata des prix quand les ventes de l'export égalent celles de la facture ;
+ * sinon taux réel de la facture du mois (ou de toutes les factures).
+ */
+function bookingExportAmounts_(records, invoices) {
+  var inv = {}, all = { sales: 0, commission: 0, fees: 0 };
+  invoices.forEach(function (i) {
+    var ym = String(i.periodEnd).slice(0, 7);
+    var o = inv[ym] || (inv[ym] = { sales: 0, commission: 0, fees: 0 });
+    o.sales += Number(i.sales) || 0; o.commission += Number(i.commission) || 0; o.fees += Number(i.paymentFees) || 0;
+    all.sales += Number(i.sales) || 0; all.commission += Number(i.commission) || 0; all.fees += Number(i.paymentFees) || 0;
+  });
+  var amounts = {}, warnings = [], groups = {};
+  var noCommission = 0;
+  records.forEach(function (x) {
+    if (!(x.price > 0)) return;
+    var c = x.commission !== null ? x.commission : x.commissionPct !== null ? x.price * x.commissionPct / 100 : null;
+    if (x.cancelled && !(c > 0)) return; // annulée sans frais pour le client : rien n'est dû
+    amounts[x.number] = { gross: x.price, commission: c, net: 0 };
+    var ym = (x.checkout || x.checkin).slice(0, 7);
+    (groups[ym] = groups[ym] || []).push(x);
+  });
+  var checks = [];
+  Object.keys(groups).sort().forEach(function (ym) {
+    var list = groups[ym], i = inv[ym];
+    var sales = 0;
+    list.forEach(function (x) { sales += x.price; });
+    sales = round2_(sales);
+    list.forEach(function (x) {
+      var a = amounts[x.number];
+      if (a.commission === null) {
+        noCommission++;
+        a.commission = (x.price * (i && i.sales ? i.commission / i.sales : all.sales ? all.commission / all.sales : BOOKING_FALLBACK_PCT / 100));
+      }
+    });
+    if (i && Math.abs(sales - i.sales) < 0.05) {
+      // Mêmes ventes que la facture : sa commission + ses frais répartis au centime (au prorata
+      // de la commission de chaque séjour + sa part des frais), donc total du mois = facture.
+      var total = Math.round((i.commission + i.fees) * 100), given = 0, rawSum = 0;
+      var parts = list.map(function (x) {
+        var raw = amounts[x.number].commission + x.price * i.fees / i.sales;
+        rawSum += raw;
+        return { x: x, raw: raw };
+      });
+      parts.forEach(function (p) {
+        var exact = rawSum > 0 ? total * p.raw / rawSum : 0;
+        p.cents = Math.floor(exact + 1e-9); p.rest = exact - p.cents; given += p.cents;
+      });
+      parts.slice().sort(function (a, b) { return b.rest - a.rest; }).slice(0, Math.max(0, total - given)).forEach(function (p) { p.cents++; });
+      parts.forEach(function (p) { var a = amounts[p.x.number]; a.net = round2_(a.gross - p.cents / 100); });
+    } else {
+      var rate = i && i.sales ? i.fees / i.sales : all.sales ? all.fees / all.sales : 0;
+      list.forEach(function (x) { var a = amounts[x.number]; a.net = round2_(a.gross - a.commission - x.price * rate); });
+      if (!i && !all.sales) warnings.push('aucune facture Booking lue : frais de paiement non déduits pour ' + monthLabel_(ym));
+    }
+    var net = 0;
+    list.forEach(function (x) { net += amounts[x.number].net; });
+    if (i) {
+      var invNet = round2_(i.sales - i.commission - i.fees);
+      checks.push({ ym: ym, label: monthLabel_(ym), exportNet: round2_(net), invoiceNet: invNet, match: Math.abs(round2_(net) - invNet) < 0.05 });
+    }
+  });
+  if (noCommission) warnings.push(noCommission + ' réservation(s) sans commission dans le fichier : taux réel des factures appliqué');
+  return { amounts: amounts, checks: checks, warnings: warnings };
+}
+
+function monthLabel_(ym) {
+  var names = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  return names[Number(ym.slice(5, 7)) - 1] + ' ' + ym.slice(0, 4);
+}
+
+/**
+ * Applique les réservations lues aux lignes existantes (rapprochement par numéro).
+ * Jamais de doublon (clé booking:<numéro>), jamais d'écrasement d'un champ modifié à la main.
+ */
+function applyBookingExport_(records, rows, invoices, now) {
+  var ctx = { rows: rows, byKey: indexBy_(rows, 'key'), now: now, counts: { added: 0, updated: 0, cancelled: 0 } };
+  var calc = bookingExportAmounts_(records, invoices);
+  var s = { added: 0, updated: 0, cancelled: 0, unchanged: 0, kept: 0, errors: [], warnings: calc.warnings, checks: calc.checks };
+  records.forEach(function (x) {
+    var key = 'booking:' + x.number;
+    var r = ctx.byKey[key];
+    var before = r ? JSON.stringify(r) : '';
+    var wasCancelled = r && r.status === 'cancelled';
+    var locked = r ? lockedSet_(r) : {};
+    var a = calc.amounts[x.number];
+    var fields = { code: x.number, guest: x.guest, checkin: x.checkin, checkout: x.checkout, phone: x.phone, location: x.country, guestsCount: x.people };
+    if (a) {
+      fields.amountGross = String(a.gross);
+      fields.amountNet = String(a.net);
+      fields.commission = String(round2_(a.gross - a.net)); // commission + frais de paiement
+      if (x.cancelled) fields.keepRevenue = '1'; // annulée mais facturée au client
+    }
+    var status = x.cancelled ? 'cancelled' : 'confirmed';
+    Object.keys(fields).concat(['status']).forEach(function (f) {
+      var v = f === 'status' ? status : fields[f];
+      if (r && locked[f] && v !== '' && String(r[f]) !== String(v)) s.kept++;
+    });
+    r = upsert_(ctx, key, { source: 'booking', origin: 'export', status: status }, fields, { guestsText: x.guestsText });
+    if (!lockedSet_(r).status) {
+      if (r.status !== status) { r.status = status; r.updatedAt = now; }
+      if (r.autoStatus) { r.autoStatus = ''; r.updatedAt = now; }
+    }
+    // Dates fermées vues dans le calendrier Booking pour ce séjour : rattachées à la réservation.
+    var ph = ctx.byKey['booking-ical:' + r.checkin + '_' + r.checkout];
+    if (ph && ph !== r && !ph.mergedInto) { mergePlaceholder_(r, ph); r.updatedAt = now; }
+    if (!before) s.added++;
+    else if (JSON.stringify(r) === before) s.unchanged++;
+    else if (!wasCancelled && r.status === 'cancelled') s.cancelled++;
+    else s.updated++;
+  });
+  var kept = ctx.rows.filter(function (r) { return !r.mergedInto; });
+  return { rows: kept, summary: s };
+}
+
+// =====================================================================
 // Revenus (seule source de vérité du calcul)
 // =====================================================================
 
@@ -1371,6 +2016,14 @@ function netAmount_(r, ratePct) {
   return null;
 }
 
+/** Commission connue (positive) : lue (export Booking, e-mail Airbnb) ou déduite du prix client Booking ; null sinon. */
+function commissionAmount_(r, net, ratePct) {
+  if (net === null || (r.status === 'cancelled' && r.keepRevenue !== '1')) return null;
+  if (r.commission !== '' && r.commission !== undefined && r.commission !== null) return Number(r.commission);
+  if (r.source === 'booking' && r.amountGross !== '' && r.amountGross !== undefined && r.amountGross !== null) return round2_(Number(r.amountGross) - net);
+  return null;
+}
+
 /** Mois comptable Booking : celui du départ (comme sur les factures Booking). */
 function bookingMonth_(r) {
   return (r.checkout || r.checkin || '').slice(0, 7);
@@ -1393,6 +2046,7 @@ function revenueModel_(rawRows, invoices, settings) {
     o.net = netAmount_(r, rate.pct);
     o.amountKind = o.net === null ? '' : 'exact';
     o.lockedFields = r.locked ? r.locked.split(',') : [];
+    o.commissionAmt = commissionAmount_(r, o.net, rate.pct);
     return o;
   });
   var byMonth = {};
@@ -1439,23 +2093,27 @@ function revenueModel_(rawRows, invoices, settings) {
 /**
  * Revenus par année et par mois. Le montant d'un séjour est réparti nuit par
  * nuit sur les mois concernés ; un séjour sans date de départ compte sur son
- * mois d'arrivée.
+ * mois d'arrivée. Chaque mois liste ses paiements (items : séjour, nuits du mois,
+ * net et commission de ces nuits) ; brut et commissions connus par plateforme.
  */
 function computeStats_(rows, unallocated) {
   var years = {};
   function bucket(y) {
     if (!years[y]) {
-      years[y] = { months: [], total: { revenue: 0, estimated: 0, nights: 0, bookings: 0, missing: 0, bySource: {}, revenueWithNights: 0, staysWithoutNights: 0 } };
-      for (var i = 0; i < 12; i++) years[y].months.push({ revenue: 0, estimated: 0, nights: 0, bookings: 0, missing: 0, days: daysInMonth_(Number(y), i + 1) });
+      years[y] = { months: [], total: { revenue: 0, estimated: 0, nights: 0, bookings: 0, missing: 0, bySource: {}, commissionBySource: {}, grossKnownBySource: {}, revenueWithNights: 0, staysWithoutNights: 0 } };
+      for (var i = 0; i < 12; i++) years[y].months.push({ revenue: 0, estimated: 0, commission: 0, nights: 0, bookings: 0, missing: 0, days: daysInMonth_(Number(y), i + 1), items: [] });
     }
     return years[y];
   }
   Object.keys(unallocated || {}).forEach(function (ym) {
-    addRev_(bucket(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, unallocated[ym], 'booking', false);
+    var b = bucket(ym.slice(0, 4)), mi = Number(ym.slice(5, 7)) - 1;
+    addRev_(b, mi, unallocated[ym], 'booking', false);
+    b.months[mi].items.push({ id: '', source: 'booking', nights: 0, net: round2_(unallocated[ym]), commission: null, kind: 'facture' });
   });
   rows.forEach(function (r) {
     if (!r.counted || !isYmd_(r.checkin)) return;
     var net = r.net;
+    var com = r.commissionAmt;
     var y0 = r.checkin.slice(0, 4);
     var m0 = Number(r.checkin.slice(5, 7)) - 1;
     var b0 = bucket(y0);
@@ -1464,28 +2122,43 @@ function computeStats_(rows, unallocated) {
     if (net === null) { b0.months[m0].missing++; b0.total.missing++; }
     var n = r.nights;
     var est = r.amountKind === 'estimé';
+    var parts = {}; // « année-mois » → nuits du séjour dans ce mois
     if (!n) {
       b0.total.staysWithoutNights++;
-      if (net) addRev_(b0, m0, net, r.source, est);
-      return;
+      parts[y0 + '-' + m0] = 0;
+    } else {
+      for (var i = 0; i < n; i++) {
+        var d = addDays_(r.checkin, i);
+        var k = d.slice(0, 4) + '-' + (Number(d.slice(5, 7)) - 1);
+        parts[k] = (parts[k] || 0) + 1;
+      }
     }
-    var perNight = net === null ? 0 : net / n;
-    for (var i = 0; i < n; i++) {
-      var d = addDays_(r.checkin, i);
-      var b = bucket(d.slice(0, 4));
-      var mi = Number(d.slice(5, 7)) - 1;
-      b.months[mi].nights++;
-      b.total.nights++;
-      if (perNight) { addRev_(b, mi, perNight, r.source, est); b.total.revenueWithNights += perNight; }
-    }
+    Object.keys(parts).forEach(function (k) {
+      var y = k.split('-')[0], mi = Number(k.split('-')[1]), b = bucket(y), nn = parts[k];
+      var share = n ? nn / n : 1;
+      b.months[mi].nights += nn;
+      b.total.nights += nn;
+      var amount = net === null ? null : net * share;
+      var c = com === null || com === undefined ? null : com * share;
+      if (amount) {
+        addRev_(b, mi, amount, r.source, est);
+        if (n) b.total.revenueWithNights += amount;
+        if (c !== null) {
+          b.months[mi].commission += c;
+          b.total.commissionBySource[r.source] = (b.total.commissionBySource[r.source] || 0) + c;
+          b.total.grossKnownBySource[r.source] = (b.total.grossKnownBySource[r.source] || 0) + amount + c;
+        }
+      }
+      b.months[mi].items.push({ id: r.id, source: r.source, nights: nn, net: amount === null ? null : round2_(amount), commission: c === null ? null : round2_(c), kind: r.amountKind });
+    });
   });
   Object.keys(years).forEach(function (y) {
     var t = years[y].total;
     t.revenue = round2_(t.revenue);
     t.estimated = round2_(t.estimated);
     t.revenueWithNights = round2_(t.revenueWithNights);
-    Object.keys(t.bySource).forEach(function (k) { t.bySource[k] = round2_(t.bySource[k]); });
-    years[y].months.forEach(function (m) { m.revenue = round2_(m.revenue); m.estimated = round2_(m.estimated); });
+    ['bySource', 'commissionBySource', 'grossKnownBySource'].forEach(function (g) { Object.keys(t[g]).forEach(function (k) { t[g][k] = round2_(t[g][k]); }); });
+    years[y].months.forEach(function (m) { m.revenue = round2_(m.revenue); m.estimated = round2_(m.estimated); m.commission = round2_(m.commission); });
     t.days = (Number(y) % 4 === 0 && (Number(y) % 100 !== 0 || Number(y) % 400 === 0)) ? 366 : 365;
   });
   return years;

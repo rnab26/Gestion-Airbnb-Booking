@@ -26,6 +26,14 @@ aucun serveur, aucun abonnement, aucune clé à gérer.
   - le taux de commission réel (commission + frais de paiement) est calculé sur tes factures.
 
   Un montant saisi à la main remplace toujours le calcul.
+- **Import de l'export Booking** (Réglages › « Importer l'export Booking », CSV ou
+  Excel, ou sur Android : Partager › Gestion location) : rapproche chaque ligne par
+  numéro de réservation et remplit nom, départ, pays, téléphone, annulation et
+  **montant net exact** (prix − commission − frais de paiement au taux réel des
+  factures ; quand les ventes de l'export égalent celles de la facture du mois,
+  ses frais sont répartis au centime, donc le total du mois = la facture). Les
+  saisies à la main ne sont jamais écrasées ; réimporter le même fichier ne crée
+  aucun doublon. Le fichier n'est pas gardé : seules les réservations le sont.
 - **Planning** : calendrier mensuel (arrivées, départs, jours d'enchaînement),
   détail par jour, notes sur une date ou une période.
 - **Page gestionnaire** : planning, prochains ménages, notes que tu rends visibles.
@@ -134,9 +142,11 @@ d'exécution.
 
 ## Limites connues
 
-- Booking : le montant par réservation est une **répartition** du net réel du
-  mois (facture), pas le montant exact de chaque séjour. Pour l'exact, saisis le
-  prix client (extranet › Réservations) dans la réservation.
+- Booking : sans import de l'export, le montant par réservation est une
+  **répartition** du net réel du mois (facture), pas le montant exact de chaque
+  séjour. Pour l'exact : Réglages › Importer l'export Booking (à refaire de temps
+  en temps, Booking ne permet pas de le récupérer automatiquement).
+- Ancien format Excel binaire (.xls) non lu : choisir CSV dans Booking.
 - La conversion du PDF de facture par Google Drive a été testée sur le texte
   réel de ta facture, mais pas encore dans ton compte. Si elle échoue, un
   avertissement s'affiche dans le journal et l'outil réessaie à chaque synchro.

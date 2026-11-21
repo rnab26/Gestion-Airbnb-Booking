@@ -7,6 +7,43 @@ const vm = require('vm');
 const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..', 'apps-script');
+const zlib = require('zlib');
+
+// Blob Apps Script : octets (signés ou non) ou texte.
+function blob(x, name) {
+  const buf = typeof x === 'string' ? Buffer.from(x, 'utf8') : Buffer.from(Array.from(x).map(v => v & 255));
+  return {
+    getName: () => name || null,
+    getBytes: () => Array.from(buf),
+    getDataAsString(cs) {
+      const c = String(cs || 'UTF-8').toUpperCase();
+      if (c === 'UTF-16LE') return buf.toString('utf16le');
+      if (c === 'UTF-16BE') { const s = Buffer.from(buf); s.swap16(); return s.toString('utf16le'); }
+      if (c === 'WINDOWS-1252' || c === 'ISO-8859-1') return buf.toString('latin1');
+      return buf.toString('utf8');
+    }
+  };
+}
+
+// Utilities.unzip : lit le répertoire central d'un zip (méthodes « stocké » et « deflate »).
+function unzip(buf) {
+  let eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocd < 0) throw new Error('Zip invalide');
+  const count = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const method = buf.readUInt16LE(p + 10), size = buf.readUInt32LE(p + 20);
+    const nameLen = buf.readUInt16LE(p + 28), extra = buf.readUInt16LE(p + 30), comment = buf.readUInt16LE(p + 32);
+    const local = buf.readUInt32LE(p + 42);
+    const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
+    const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+    const raw = buf.subarray(start, start + size);
+    out.push(blob(method === 8 ? zlib.inflateRawSync(raw) : raw, name));
+    p += 46 + nameLen + extra + comment;
+  }
+  return out;
+}
 
 function formatDate(date, tz, fmt) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -92,10 +129,10 @@ function createEnv(opts) {
         if (typeof s !== 'string' || !/^[A-Za-z0-9_-]*={0,2}$/.test(s) || s.length % 4) throw new Error('Impossible de décoder la chaîne.');
         return Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
       },
-      newBlob: x => ({
-        getDataAsString: () => Buffer.from(x).toString('utf8'),
-        getBytes: () => Array.from(typeof x === 'string' ? Buffer.from(x, 'utf8') : Buffer.from(x))
-      })
+      // Octets signés (-128..127) comme Apps Script.
+      base64Decode: s => Array.from(Buffer.from(String(s), 'base64')).map(b => (b > 127 ? b - 256 : b)),
+      newBlob: (x, type, name) => blob(x, name),
+      unzip: b => unzip(Buffer.from(b.getBytes().map(v => v & 255)))
     },
     Session: {
       getScriptTimeZone: () => 'Europe/Paris',

@@ -143,8 +143,15 @@ async function main() {
   await item.click();
   await page.waitForSelector('#resForm');
   await page.fill('textarea[name=sharedNote]', 'Arrivée tardive vers 22h');
+  await page.fill('input[name=phone]', '06 12 34 56 78');
+  await page.fill('input[name=checkout]', '2026-10-30');
+  assert.equal(await page.textContent('[data-dow=checkout]'), 'Ven. 30 oct. 2026', 'jour de la semaine sous la date');
+  await page.fill('input[name=checkout]', '2026-10-29');
   await page.click('#resSave');
   await toast(page, /Réservation enregistrée/);
+  // Téléphone complet : bouton WhatsApp (numéro français → +33), sans ouvrir la réservation.
+  assert.equal(await page.getAttribute('.item:has-text("Jean Dupont") [data-wa]', 'data-wa'), 'https://wa.me/33612345678');
+  assert.match(await page.textContent('.item:has-text("Jean Dupont")'), /Dim\. 25 oct\. → Jeu\. 29 oct\./);
   // Réservation directe : ajout puis suppression avec confirmation
   await page.click('#addRes2');
   await page.fill('input[name=guest]', 'Cousin Paul');
@@ -171,6 +178,52 @@ async function main() {
   await page.click('nav.tabs button[data-tab=reglages]');
   const mgrUrl = await page.textContent('#mgrLink');
   const manager = mgrUrl.split('k=')[1];
+
+  // 7b. Import de l'export Booking (fichier synthétique, mêmes colonnes que le vrai)
+  const bx = require('./fixtures/booking-export');
+  await page.setInputFiles('#bkFile', { name: 'Départ du 2025-11-22 au 2026-11-22.xls', mimeType: 'application/vnd.ms-excel', buffer: bx.xls() });
+  await toast(page, /Import : 5 nouvelle\(s\), 3 mise\(s\) à jour, 0 annulée\(s\), 0 inchangée\(s\), 0 erreur\(s\)/);
+  assert.match(await page.textContent('#importLast'), /Départ du 2025-11-22 au 2026-11-22\.xls/);
+  await shot(page, '07b-import-booking');
+  await page.setInputFiles('#bkFile', { name: 'export.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: bx.xlsx() });
+  await toast(page, /Import : 0 nouvelle\(s\), 0 mise\(s\) à jour, 0 annulée\(s\), 8 inchangée\(s\), 0 erreur\(s\)/);
+  await page.setInputFiles('#bkFile', { name: 'liste.csv', mimeType: 'text/csv', buffer: Buffer.from('Nom;Prénom\nA;B\n') });
+  await toast(page, /pas un export des réservations Booking/);
+  assert.match(await page.textContent('#importLast'), /Import impossible/);
+  await page.click('nav.tabs button[data-tab=resas]');
+  await page.click('[data-view=all]');
+  await page.fill('#resQ', 'Lucas Bernard');
+  await page.waitForFunction(() => document.querySelectorAll('.item').length === 1);
+  await page.click('.item:has-text("Lucas Bernard")');
+  await page.waitForSelector('#resForm');
+  assert.match(await page.textContent('.modal'), /Lue dans les e-mails Booking/);
+  await page.click('[data-close]');
+  await page.fill('#resQ', 'David Cohen');
+  await page.waitForFunction(() => document.querySelectorAll('.item').length === 1);
+  await page.click('.item:has-text("David Cohen")');
+  const modal = await page.textContent('.modal');
+  assert.match(modal, /Importée de l'export Booking · n° 7100000106/);
+  assert.match(modal, /Dim\. 20 déc\. 2026/);
+  assert.match(modal, /Prix payé par le client500,00\s€/);
+  assert.match(modal, /Commission \+ frais de paiement Booking \(\d+,?\d* %\)− /);
+  assert.match(modal, /Net pour toi/);
+  assert.match(modal, /🌍 Israël/);
+  await shot(page, '07c-fiche-reservation-booking');
+  await page.click('[data-close]');
+  await page.fill('#resQ', '');
+  // Revenus : commissions par plateforme et détail des paiements d'octobre (déroulant).
+  await page.click('nav.tabs button[data-tab=revenus]');
+  assert.match(await page.textContent('.wrap'), /Brut [\d\s,]+€ − commissions [\d\s,]+€/);
+  await page.click('details[data-mdet="2026-10"] summary');
+  const pays = await page.textContent('details[data-mdet="2026-10"]');
+  assert.match(pays, /Claire Martin/);
+  assert.match(pays, /Jean Dupont/);
+  assert.match(pays, /brut [\d\s,]+€ − comm\. [\d\s,]+€/);
+  await shot(page, '07d-revenus-detail-octobre');
+  await page.click('details[data-mdet="2026-10"] .pay:has-text("Claire Martin")');
+  await page.waitForSelector('#resForm');
+  await page.click('[data-close]');
+  await page.click('nav.tabs button[data-tab=reglages]');
 
   // 8. Page gestionnaire : planning sans montants
   const mp = await open(manager, 'manager');
