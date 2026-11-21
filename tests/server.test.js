@@ -1,4 +1,5 @@
 'use strict';
+process.env.FAKE_NOW = process.env.FAKE_NOW || '2026-10-27T10:00:00Z';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createEnv } = require('./gas-mock');

@@ -1,3 +1,4 @@
+process.env.FAKE_NOW = process.env.FAKE_NOW || '2026-10-27T10:00:00Z';
 // Parcours complet dans un vrai navigateur (Chromium), écran de téléphone,
 // avec le vrai doGet/api de Code.gs branché sur les services simulés.
 'use strict';
@@ -90,16 +91,20 @@ async function main() {
 
   // 4. Planning d'octobre 2026 : arrivée de Jean le 25
   await page.click('nav.tabs button[data-tab=planning]');
-  await page.waitForSelector('[data-day="2026-10-25"]');
-  assert.match(await page.textContent('[data-day="2026-10-25"]'), /▸ Jean/);
+  await page.waitForSelector('[data-bar-start="2026-10-25"]');
+  assert.match((await page.$$eval('[data-bar-start="2026-10-25"]', (els) => els.map((e) => e.textContent))).join(' '), /Jean/);
   assert.ok(!(await page.isVisible('text=Pour des dates toujours à jour')));
   await shot(page, '04-planning');
-  await page.click('#calNext'); await page.click('#calNext');
-  assert.match(await page.textContent('[data-day="2026-12-20"]'), /bloqué/);
+  // Aller jusqu'à décembre 2026, quel que soit le mois du jour.
+  for (let i = 0; i < 24 && !(await page.isVisible('[data-day="2026-12-20"]:not(.out)')); i++) {
+    const t = await page.textContent('.cal-head .title');
+    await page.click(/2027|2028/.test(t) ? '#calPrev' : '#calNext');
+  }
+  assert.ok(await page.$eval('[data-day="2026-12-20"]', (e) => e.classList.contains('blocked')));
   await shot(page, '04b-decembre-dates-fermees');
   await page.click('#calToday');
   // Détail d'un jour + ajout d'une note visible gestionnaire
-  await page.click('[data-day="2026-10-29"]');
+  await page.click('[data-day="2026-10-29"]', { position: { x: 12, y: 12 } });
   await page.waitForSelector('.modal');
   assert.match(await page.textContent('.modal'), /Départ/);
   await page.click('[data-addnote]');
@@ -119,10 +124,10 @@ async function main() {
 
   // 6. Réservations : recherche, modification, montant
   await page.click('nav.tabs button[data-tab=resas]');
+  await page.click('[data-view=all]'); // « Toutes » : le séjour de Jean peut déjà être passé selon la date du jour
   await page.fill('#resQ', 'jean');
   await page.waitForFunction(() => document.querySelectorAll('.item').length === 1);
   await page.fill('#resQ', '');
-  await page.click('[data-view=all]');
   await shot(page, '06-reservations');
   const item = await page.$('.item:has-text("Jean Dupont")');
   await item.click();
