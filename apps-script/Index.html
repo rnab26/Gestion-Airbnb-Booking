@@ -240,7 +240,7 @@ function notesOn(d) {
   return S.data.notes.filter(function (n) { return n.date <= d && d <= (n.endDate || n.date); });
 }
 function guestLabel(r) {
-  if (r.status === 'blocked') return 'Bloqué (' + (SRC[r.source] || 'manuel') + ')';
+  if (r.status === 'blocked') return 'Fermé sur ' + (SRC[r.source] || 'la plateforme');
   if (r.guest) return r.guest;
   if (!isOwner()) return 'Voyageur';
   if (r.source === 'booking' && r.origin === 'ical') return 'Booking (sans e-mail)';
@@ -413,10 +413,6 @@ function banners() {
       return esc(guestLabel(a)) + ' (' + fmtDate(a.checkin) + '→' + fmtDate(a.checkout) + ') et ' + esc(guestLabel(b)) + ' (' + fmtDate(b.checkin) + '→' + fmtDate(b.checkout) + ')';
     }).join('<br>') + '</div>';
   }
-  var missing = d.reservations.filter(function (r) { return r.missingAmount; }).length;
-  if (missing && (S.tab === 'revenus' || S.tab === 'resas')) {
-    out += '<div class="banner warn">' + missing + ' réservation(s) sans montant : total incomplet. <button class="btn small" data-missing="1">Compléter</button></div>';
-  }
   return out;
 }
 
@@ -489,7 +485,7 @@ function calendarHtml() {
     });
     html += '</div>';
   }
-  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking)"></i>Booking</span><span><i class="sw" style="background:var(--direct)"></i>Direct</span><span><i class="sw" style="background:var(--blocked-bg);border:1px solid var(--line)"></i>Bloqué</span><span><i class="sw" style="border:1px solid var(--line)"></i>Libre</span>'
+  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking)"></i>Booking</span><span><i class="sw" style="background:var(--direct)"></i>Direct</span><span><i class="sw" style="background:var(--blocked-bg);border:1px solid var(--line)"></i>Fermé (Airbnb/Booking)</span><span><i class="sw" style="border:1px solid var(--line)"></i>Libre</span>'
     : '<span><i class="sw" style="background:var(--booking)"></i>Occupé</span>') +
     '<span><i class="sw" style="background:var(--warn);border-radius:50%"></i>Note</span></div>';
   return html;
@@ -505,13 +501,10 @@ function resCard(r, opts) {
   opts = opts || {};
   var badges = '';
   if (isOwner()) {
-    badges += '<span class="badge ' + esc(r.source) + '">' + esc(SRC[r.source] || r.source) + '</span>';
-    if (r.status === 'blocked') badges += '<span class="badge">Pas une réservation : dates bloquées</span>';
+    // La couleur de la barre dit déjà la plateforme, le « ≈ » dit déjà que le montant est estimé.
     if (r.status === 'cancelled') badges += '<span class="badge err">' + (r.autoStatus === 'absent' ? 'Annulée (plus dans le calendrier)' : 'Annulée') + '</span>';
     if (r.hidden === '1') badges += '<span class="badge">Masquée</span>';
     if (r.missingAmount) badges += '<span class="badge warn">Montant à saisir</span>';
-    if (r.amountKind === 'facture') badges += '<span class="badge">≈ part de la facture</span>';
-    if (r.amountKind === 'estimé') badges += '<span class="badge warn">≈ estimé</span>';
     if (!r.checkout && r.status === 'confirmed') badges += '<span class="badge warn">Départ inconnu</span>';
   }
   var hasNet = isOwner() && r.net !== null && r.counted;
@@ -585,6 +578,8 @@ function bindPlanning(root) {
 }
 
 // ----- revenus -----
+// Ordre : chiffres de l'année, revenus nets par mois (déroulant = paiements séjour par séjour),
+// par plateforme, puis factures Booking repliées (contrôle).
 function viewRevenus() {
   var y = S.year;
   var st = S.data.stats[y];
@@ -594,24 +589,15 @@ function viewRevenus() {
   if (!st) return html + '<div class="empty">Aucune réservation en ' + y + '.</div>';
   var t = st.total;
   var occ = t.days ? Math.round(t.nights / t.days * 100) : 0;
-  html += '<div class="kpis"><div class="kpi"><div class="v">' + fmtMoney(t.revenue) + '</div><div class="l">Revenu net ' + y + '</div></div>' +
+  html += (t.missing ? '<div class="banner warn">' + t.missing + ' séjour(s) de ' + y + ' sans montant : total incomplet. <button class="btn small" data-missing="1">Voir</button></div>' : '') +
+    '<div class="kpis"><div class="kpi"><div class="v">' + fmtMoney(t.revenue) + '</div><div class="l">Revenu net ' + y + (t.estimated ? ' · dont ' + fmtMoney(t.estimated) + ' estimés' : '') + '</div></div>' +
     '<div class="kpi"><div class="v">' + t.nights + '</div><div class="l">Nuits louées</div></div>' +
     '<div class="kpi"><div class="v">' + occ + ' %</div><div class="l">Occupation</div></div>' +
-    '<div class="kpi"><div class="v">' + (t.nights ? fmtMoney(t.revenueWithNights / t.nights) : '—') + '</div><div class="l">Net moyen / nuit</div></div></div>' +
-    (t.staysWithoutNights ? '<p class="help">' + t.staysWithoutNights + ' séjour(s) sans date de départ connue (Booking ne la donne pas pour les séjours passés) : leurs nuits ne sont pas comptées. Tu peux la saisir dans la réservation.</p>' : '');
-  var bs = t.bySource, cs = t.commissionBySource || {}, gs = t.grossKnownBySource || {};
-  html += '<div class="card"><h3>Par plateforme</h3><p class="help" style="margin-top:-4px">Net = ce que tu touches, après commissions et frais.</p>' + ['airbnb', 'booking', 'direct'].map(function (k) {
-    var c = cs[k], g = gs[k];
-    return '<div style="padding:5px 0;border-bottom:1px solid var(--line)"><div class="spread"><span><i class="sw" style="background:' + srcColor(k) + '"></i>' + SRC[k] + '</span><b>' + fmtMoney(bs[k] || 0) + ' net</b></div>' +
-      (c ? '<div class="small muted">Brut ' + fmtMoney(g) + ' − commissions ' + fmtMoney(c) + ' (' + String(Math.round(c / g * 1000) / 10).replace('.', ',') + ' %)' +
-        (Math.abs(g - c - (bs[k] || 0)) > 1 ? ', sur les séjours au montant exact (' + fmtMoney(g - c) + ' de net)' : '') + '</div>' : '') + '</div>';
-  }).join('') + (t.missing ? '<p class="small" style="color:var(--warn)">⚠ ' + t.missing + ' réservation(s) sans montant : total incomplet.</p>' : '') +
-    (t.estimated ? '<p class="small muted">Dont ' + fmtMoney(t.estimated) + ' estimés (séjours Booking pas encore facturés).</p>' : '') + '</div>';
-  html += bookingCard(y);
+    '<div class="kpi"><div class="v">' + (t.nights ? fmtMoney(t.revenueWithNights / t.nights) : '—') + '</div><div class="l">Net moyen / nuit</div></div></div>';
   var max = Math.max.apply(null, st.months.map(function (m) { return m.revenue; })) || 1;
   var byId = {};
   S.data.reservations.forEach(function (r) { byId[r.id] = r; });
-  html += '<div class="card"><h3>Par mois</h3><p class="help" style="margin-top:-4px">Montants nets (après commissions), répartis par nuit. Touche un mois pour voir le détail des paiements, séjour par séjour.</p>' +
+  html += '<div class="card"><h3>Revenus nets par mois</h3><p class="help" style="margin-top:-4px">Après commissions, comptés par nuit. Touche un mois pour le détail.</p>' +
     st.months.map(function (m, i) {
       var items = (m.items || []).slice().sort(function (a, b) { return ((byId[a.id] || {}).checkin || '9') < ((byId[b.id] || {}).checkin || '9') ? -1 : 1; });
       return '<details class="mdet" data-mdet="' + y + '-' + pad(i + 1) + '"><summary><div class="mrow"><span class="small">' + MONTHS_S[i] + '</span><span><span class="mbar"><i style="width:' + Math.round(m.revenue / max * 100) + '%"></i></span>' +
@@ -619,30 +605,35 @@ function viewRevenus() {
         '</span></span><b class="small">' + fmtMoney(m.revenue) + '</b></div></summary>' +
         (items.length ? items.map(function (it) {
           var r = byId[it.id];
-          var label = r ? esc(guestLabel(r)) : 'Facture Booking : ventes sans réservation identifiée';
-          var dates = r ? fmtDate(r.checkin) + ' → ' + (r.checkout ? fmtDate(r.checkout) : '?') + (it.nights ? ' · ' + it.nights + ' nuit' + (it.nights > 1 ? 's' : '') + ' ce mois' + (r.nights && r.nights !== it.nights ? ' (sur ' + r.nights + ')' : '') : '') : '';
+          var label = r ? esc(guestLabel(r)) : 'Facture Booking : ventes sans séjour identifié';
+          var dates = r ? fmtDate(r.checkin) + ' → ' + (r.checkout ? fmtDate(r.checkout) : '?') + (it.nights && r.nights && r.nights !== it.nights ? ' · ' + it.nights + ' nuit' + (it.nights > 1 ? 's' : '') + ' sur ' + r.nights + ' ce mois' : r && r.nights ? ' · ' + r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') : '';
           var approx = it.kind === 'facture' || it.kind === 'estimé';
-          var detail = it.commission !== null && it.commission !== undefined ? 'brut ' + fmtMoney(it.net + it.commission) + ' − comm. ' + fmtMoney(it.commission) + ' = net'
-            : approx ? (it.kind === 'facture' ? 'part de la facture Booking du mois' : 'estimé, facture pas encore reçue') : '';
-          return '<div class="pay"' + (r ? ' data-res="' + esc(r.id) + '"' : '') + ' style="border-left-color:' + srcColor(it.source) + '"><span><b>' + label + '</b> <span class="muted">· ' + esc(SRC[it.source] || it.source) + '</span>' +
+          var detail = it.commission !== null && it.commission !== undefined ? fmtMoney(it.net + it.commission) + ' − comm. ' + fmtMoney(it.commission)
+            : approx ? (it.kind === 'facture' ? 'part de la facture du mois' : 'estimé') : '';
+          return '<div class="pay"' + (r ? ' data-res="' + esc(r.id) + '"' : '') + ' style="border-left-color:' + srcColor(it.source) + '"><span><b>' + label + '</b>' +
             (dates ? '<br><span class="muted">' + dates + '</span>' : '') + (detail ? '<br><span class="muted">' + detail + '</span>' : '') + '</span>' +
             '<b style="text-align:right">' + (it.net === null ? '<span style="color:var(--warn)">à saisir</span>' : (approx ? '≈ ' : '') + fmtMoney(it.net)) + '</b></div>';
-        }).join('') : '<p class="small muted" style="margin:4px 0 8px 10px">Aucun séjour ce mois-ci.</p>') +
-        '<p style="margin:2px 0 8px 10px"><button class="btn small" data-month="' + y + '-' + pad(i + 1) + '">Voir ' + MONTHS[i] + ' dans le planning</button></p></details>';
+        }).join('') : '<p class="small muted" style="margin:4px 0 8px 10px">Aucun séjour.</p>') +
+        '<p style="margin:2px 0 8px 10px"><button class="btn small" data-month="' + y + '-' + pad(i + 1) + '">Voir dans le planning</button></p></details>';
     }).join('') + '</div>';
+  var bs = t.bySource, cs = t.commissionBySource || {}, gs = t.grossKnownBySource || {};
+  html += '<div class="card"><h3>Par plateforme</h3>' + ['airbnb', 'booking', 'direct'].filter(function (k) { return bs[k]; }).map(function (k) {
+    var c = cs[k], g = gs[k];
+    return '<div style="padding:5px 0"><div class="spread"><span><i class="sw" style="background:' + srcColor(k) + '"></i>' + SRC[k] + '</span><b>' + fmtMoney(bs[k]) + ' net</b></div>' +
+      (c ? '<div class="small muted">Commissions ' + fmtMoney(c) + ' (' + String(Math.round(c / g * 1000) / 10).replace('.', ',') + ' % du brut' +
+        (Math.abs(g - c - bs[k]) > 1 ? ', sur ' + fmtMoney(g - c) + ' de net connus' : '') + ')</div>' : '') + '</div>';
+  }).join('') + '</div>';
+  html += bookingCard(y);
   return html;
 }
 function bookingCard(y) {
   var b = S.data.booking;
   var inv = b.invoices.filter(function (i) { return i.periodEnd.slice(0, 4) === String(y); });
-  var src = b.rateSource === 'factures' ? 'taux réel de tes factures' : b.rateSource === 'réglage' ? 'fixé dans Réglages' : 'par défaut, en attendant une facture';
-  var html = '<div class="card"><h3>Booking : factures lues</h3><p class="help" style="margin-top:-4px">Booking n\'envoie pas le prix par e-mail. Chaque facture mensuelle (PDF reçu par e-mail) donne le net réel du mois, réparti entre les séjours partis ce mois-là. Les mois pas encore facturés sont estimés' +
-    (b.perNight ? ' à ' + fmtMoney(b.perNight) + ' net par nuit' : '') + '. Commission : ' + esc(String(b.ratePct).replace('.', ',')) + ' % (' + src + ').</p>';
-  if (!inv.length) return html + '<p class="small muted">Aucune facture Booking pour ' + y + '.</p></div>';
-  return html + inv.map(function (i) {
+  if (!inv.length) return '';
+  return '<details class="card" id="invoices"><summary>Factures Booking ' + y + ' (' + inv.length + ')</summary><p class="help">Net de chaque facture mensuelle (séjours partis ce mois-là) : il sert de contrôle de l\'import.</p>' + inv.map(function (i) {
     var p = i.periodEnd.split('-');
     return '<div class="spread small" style="padding:5px 0;border-bottom:1px solid var(--line)"><span>' + MONTHS[+p[1] - 1] + '<br><span class="muted">ventes ' + fmtMoney(i.sales) + ' − frais ' + fmtMoney(i.fees) + '</span></span><b>' + fmtMoney(i.net) + '</b></div>';
-  }).join('') + '</div>';
+  }).join('') + '</details>';
 }
 function bindRevenus(root) {
   var p = $('#yPrev', root), n = $('#yNext', root);
@@ -710,6 +701,7 @@ function editReservation(r) {
       (r.phone ? '<div>📞 ' + (waLink(r.phone) ? '<a href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">' + esc(r.phone) + '</a>' : esc(r.phone)) + waChip(r.phone) + '</div>' : '') +
       (isOwner() ? moneyRows(r) : '') + '</div>') +
     '<form id="resForm">' +
+    (isNew ? '' : '<details id="resEdit"' + (r.status === 'blocked' ? ' open' : '') + '><summary>Modifier les informations</summary>') +
     (manual ? '<label class="f"><span>Plateforme</span><select name="source">' + ['direct', 'airbnb', 'booking'].map(function (k) { return '<option value="' + k + '"' + (src === k ? ' selected' : '') + '>' + (k === 'direct' ? 'Direct (sans plateforme)' : SRC[k]) + '</option>'; }).join('') + '</select></label>' : '') +
     '<label class="f"><span>Voyageur</span><input type="text" name="guest" value="' + esc(r.guest || '') + '" placeholder="Nom du voyageur"></label>' +
     '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Arrivée</span><input type="date" name="checkin" required value="' + esc(r.checkin || '') + '"><span class="dowhint" data-dow="checkin">' + (r.checkin ? fmtDate(r.checkin, true) : '') + '</span></label>' +
@@ -717,17 +709,13 @@ function editReservation(r) {
     '<label class="f"><span>Voyageurs</span><input type="text" name="guestsText" value="' + esc(r.guestsText || '') + '" placeholder="ex. 2 adultes, 1 enfant"></label>' +
     '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Téléphone</span><input type="tel" name="phone" value="' + esc(r.phone || '') + '" placeholder="+33 6 …"></label>' +
     '<label class="f" style="flex:1"><span>Provenance</span><input type="text" name="location" value="' + esc(r.location || '') + '" placeholder="Ville, pays"></label></div>' +
-    (r.source === 'airbnb' && /^…\d{4}$/.test(r.phone || '') ? '<p class="help">Airbnb ne donne que les 4 derniers chiffres : le numéro complet est dans l\'appli Airbnb (réservation › voyageur).</p>' : '') +
-    (r.source === 'booking' && !r.phone ? '<p class="help">Booking ne met pas le téléphone dans ses e-mails ni dans le relevé des réservations : il est dans l\'extranet ou Pulse (réservation › coordonnées). Nom, pays et montants arrivent avec Réglages › Importer l\'export Booking.</p>' : '') +
     '<label class="f"><span>' + (src === 'airbnb' ? 'Montant net reçu (« Vous gagnez »)' : 'Montant net reçu (optionnel si prix client rempli)') + '</span><input type="text" inputmode="decimal" name="amountNet" value="' + esc(r.amountNet || '') + '" placeholder="ex. 399,41"></label>' +
     (src !== 'airbnb' ? '<label class="f"><span>Prix payé par le client' + (src === 'booking' ? ' (net calculé avec ' + esc(String(S.data.booking.ratePct).replace('.', ',')) + ' % de commission)' : '') + '</span><input type="text" inputmode="decimal" name="amountGross" value="' + esc(r.amountGross || '') + '" placeholder="ex. 450"></label>' : '') +
-    (r.paidByGuest ? '<p class="small muted">Le voyageur a payé ' + fmtMoney(+r.paidByGuest) + ' au total (taxes comprises).</p>' : '') +
-    (r.amountKind === 'facture' ? '<p class="small muted">Montant affiché : ≈ ' + fmtMoney(r.net) + ', part de la facture Booking du mois de départ (net réel réparti au prorata des nuits). Saisis le montant exact pour le remplacer.</p>' : '') +
-    (r.amountKind === 'estimé' ? '<p class="small muted">Montant affiché : ≈ ' + fmtMoney(r.net) + ', estimé (net moyen par nuit de tes factures Booking) en attendant la facture du mois.</p>' : '') +
     '<label class="f"><span>Statut</span><select name="status"><option value="confirmed"' + (r.status !== 'cancelled' && r.status !== 'blocked' ? ' selected' : '') + '>Confirmée</option><option value="cancelled"' + (r.status === 'cancelled' ? ' selected' : '') + '>Annulée</option>' +
       '<option value="blocked"' + (r.status === 'blocked' ? ' selected' : '') + '>Dates bloquées (pas une réservation)</option></select></label>' +
     (r.status === 'blocked' ? '<p class="small muted">Dates bloquées sur ' + esc(SRC[r.source] || 'la plateforme') + ' sans e-mail de réservation : en général un blocage à la main. Si c\'est une vraie réservation, choisis « Confirmée ».</p>' : '') +
     '<label class="check" id="keepRow"' + (r.status === 'cancelled' ? '' : ' style="display:none"') + '><input type="checkbox" name="keepRevenue"' + (r.keepRevenue === '1' ? ' checked' : '') + '><span>Annulée mais payée quand même (compter le montant dans mes revenus)</span></label>' +
+    (isNew ? '' : '</details>') +
     '<label class="f"><span>Note pour la gestionnaire (visible sur sa page)</span><textarea name="sharedNote" placeholder="ex. arrivée tardive, lit bébé à préparer">' + esc(r.sharedNote || '') + '</textarea></label>' +
     '<label class="f"><span>Note privée (visible par toi seul)</span><textarea name="note">' + esc(r.note || '') + '</textarea></label>' +
     '<div class="actions"><button type="submit" class="btn primary" id="resSave">' + (isNew ? 'Ajouter' : 'Enregistrer') + '</button></div>' +
@@ -735,7 +723,6 @@ function editReservation(r) {
       (r.hidden === '1' ? '<button type="button" class="btn" data-restore>Réafficher</button>'
         : '<button type="button" class="btn danger" data-del>' + (manual ? 'Supprimer' : 'Masquer') + '</button>') +
       (!manual && locked.filter(function (f) { return f !== 'hidden'; }).length ? '<button type="button" class="btn" data-reset>Revenir aux valeurs synchronisées</button>' : '') + '</div>') +
-    (!isNew && !manual ? '<p class="help">Une réservation synchronisée ne peut pas être supprimée (elle reviendrait à la prochaine synchro) : « Masquer » la retire des écrans et des revenus.</p>' : '') +
     '</form>';
   openModal(html, function (m) {
     m.querySelector('[data-close]').onclick = closeModal;
@@ -853,7 +840,6 @@ function viewSettings() {
     }).join('') + '</select></label>' +
     chk('emailScanEnabled', 'Lire mes e-mails Airbnb et Booking', 'Lecture seule. Crée les réservations et récupère les montants Airbnb.') +
     '<p class="small">Dernière synchro : ' + (d.lastSync ? esc(ago(d.lastSync.at)) + ' — ' + esc(d.lastSync.message) : 'jamais') + '</p>' +
-    '<button type="button" class="btn" id="syncBtn2">↻ Synchroniser maintenant</button>' +
     '<details><summary>Journal des synchros</summary>' + (d.log.length ? d.log.map(function (l) {
       return '<p class="small"><b>' + (l.ok === '1' ? '✓' : '⚠') + ' ' + esc(new Date(l.at).toLocaleString('fr-FR')) + '</b> (' + esc(l.kind) + ')<br>' + esc(l.message) + '</p>';
     }).join('') : '<p class="small muted">Vide.</p>') + '</details></div>' +
@@ -880,8 +866,7 @@ function viewSettings() {
     '<p class="small">' + (d.updaterReady ? '✓ Accès de mise à jour installé.' : 'Accès de mise à jour pas encore installé.') + '</p>' +
     '<button type="button" class="btn small" id="updBtn">Vérifier maintenant</button></div>' +
     '<div class="card"><h3>Mes données</h3><p class="help">Tout est stocké dans un Google Sheet de ton Drive (export, sauvegarde, filtres…).</p>' +
-    '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.sheetUrl) + '">Ouvrir le Google Sheet</a>' +
-    '<p class="help">Version ' + esc(d.version) + '</p></div>' +
+    '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.sheetUrl) + '">Ouvrir le Google Sheet</a></div>' +
     '<div class="sticky-save"><button type="submit" class="btn primary" style="width:100%" id="setSave">Enregistrer les réglages</button></div></form>';
 }
 var IMPORT_ACCEPT = '.csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -960,7 +945,6 @@ function copyText(t) {
 }
 function bindSettings(root) {
   root.querySelectorAll('[data-copy]').forEach(function (b) { b.onclick = function () { copyText(b.getAttribute('data-copy')); }; });
-  $('#syncBtn2', root).onclick = function () { syncNow(this); };
   $('#bkFile', root).onchange = function () { var file = this.files && this.files[0]; this.value = ''; importBookingFile(file); };
   $('#updBtn', root).onclick = function () { act('checkUpdate', {}, 'Vérification terminée', this).then(function (ok) { if (ok && S.data.lastUpdate) toast(S.data.lastUpdate.message); }); };
   $('#regen', root).onclick = function () {

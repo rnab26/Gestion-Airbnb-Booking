@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.5.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.5.2'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -889,7 +889,7 @@ function mergePlaceholder_(target, ph) {
 
 // Relecture complète demandée une fois par ces versions (ex. 1.1.2 : la 1.0 avait marqué
 // comme lus des e-mails qu'elle n'avait pas su décoder).
-var EMAIL_RESCAN_VERSION = '1.5.0'; // 1.5.0 : frais de service hôte Airbnb (commission réelle) ; 1.3.1 : messages des clients Booking
+var EMAIL_RESCAN_VERSION = '1.5.2'; // 1.5.2 : net des e-mails Airbnb de 2024 ; 1.5.0 : frais de service hôte Airbnb (commission réelle) ; 1.3.1 : messages des clients Booking
 
 function scanEmails_(ctx) {
   var props = PropertiesService.getScriptProperties();
@@ -1170,14 +1170,21 @@ function parseAirbnbConfirmation_(subject, body, emailYmd) {
     if (!total) { var n = gm[1].match(/\d+/); if (n) total = Number(n[0]); }
     if (total) out.guestsCount = String(total);
   }
-  var am = text.match(/(?:VOUS GAGNEZ|YOU EARN)\s*(?:€|EUR)?\s*(-?\d[\d   .,]*)/i);
-  if (am) { var a = parseAmount_(am[1]); if (a !== null) out.amountNet = String(a); }
-  var pm = text.match(/TOTAL\s*\((?:EUR|€)\)\s*(?:€)?\s*(\d[\d   .,]*)/i);
-  if (pm) { var b = parseAmount_(pm[1]); if (b !== null) out.paidByGuest = String(b); }
-  // « Frais de service hôte (15.5 % + TVA) -77,70 € » : la commission réelle Airbnb (dernier montant de la ligne).
-  var fm = text.match(/(?:Frais de service h[ôo]te|Host service fee)[^\n]*/i);
+  // Partie « LE VOYAGEUR A PAYÉ » puis « VERSEMENT DE L'HÔTE ». Net : « VOUS GAGNEZ x € » (depuis 2025)
+  // ou le « TOTAL (EUR) » du versement (e-mails de 2024, vérifié sur un vrai e-mail le 22 nov. 2026).
+  var AMT = '(-?\\d[\\d\\s\\u00a0\\u202f.,]*)';
+  var split = text.search(/VERSEMENT DE L['’]H[ÔO]TE|HOST PAYOUT/i);
+  var guestPart = split >= 0 ? text.slice(0, split) : text, hostPart = split >= 0 ? text.slice(split) : '';
+  var am = text.match(new RegExp('(?:VOUS GAGNEZ|YOU EARN)[ \\t]*(?:€|EUR)?[ \\t]*' + AMT, 'i')) ||
+    hostPart.match(new RegExp('TOTAL\\s*\\((?:EUR|€)\\)[ \\t]*(?:€)?[ \\t]*' + AMT, 'i'));
+  if (am) { var a = parseAmount_(am[1].split('\n')[0]); if (a !== null) out.amountNet = String(a); }
+  var pm = guestPart.match(new RegExp('TOTAL\\s*\\((?:EUR|€)\\)[ \\t]*(?:€)?[ \\t]*' + AMT, 'i'));
+  if (pm) { var b = parseAmount_(pm[1].split('\n')[0]); if (b !== null) out.paidByGuest = String(b); }
+  // Commission réelle Airbnb : « Frais de service hôte (15.5 % + TVA) -77,70 € », ou « Frais de service -75,60 € »
+  // dans le versement (2024) ; dernier montant de la ligne.
+  var fm = text.match(/(?:Frais de service h[ôo]te|Host service fee)[^\n]*/i) || hostPart.match(/(?:Frais de service|Service fee)[^\n]*/i);
   if (fm) {
-    var fa = fm[0].replace(/\([^)]*\)/g, '').match(/(\d[\d   .,]*\d|\d)\s*€?\s*$/);
+    var fa = fm[0].replace(/\([^)]*\)/g, '').match(/(\d[\d\s  .,]*\d|\d)\s*€?\s*$/);
     var fv = fa ? parseAmount_(fa[1]) : null;
     if (fv !== null) out.commission = String(Math.abs(fv));
   }
@@ -2081,9 +2088,18 @@ function revenueModel_(rawRows, invoices, settings) {
       unallocated[ym] = remaining; // ventes facturées sans réservation identifiée
     }
   });
-  var perNight = allocNights ? allocNet / allocNights : 0;
-  // Séjours sans date de départ connue (Booking passé) : moyenne par séjour des factures.
-  var perStay = allocCount ? allocNetAll / allocCount : 0;
+  // Estimation des séjours Booking pas encore facturés : net moyen par nuit des séjours Booking au
+  // montant exact (import de l'export) sur les 12 derniers mois ; à défaut, celui des parts de facture.
+  var yearAgo = addDays_(todayYmd_(), -365), exNet = 0, exNights = 0, exStays = 0, exAll = 0;
+  rows.forEach(function (r) {
+    if (r.source !== 'booking' || !r.counted || r.amountKind !== 'exact' || !r.net || r.status === 'cancelled') return;
+    if ((r.checkout || r.checkin) < yearAgo) return;
+    exAll += r.net; exStays++;
+    if (r.nights) { exNet += r.net; exNights += r.nights; }
+  });
+  var perNight = exNights >= 10 ? exNet / exNights : allocNights ? allocNet / allocNights : 0;
+  // Séjours sans date de départ connue (Booking passé) : moyenne par séjour.
+  var perStay = exStays >= 5 ? exAll / exStays : allocCount ? allocNetAll / allocCount : 0;
   rows.forEach(function (r) {
     if (r.source === 'booking' && r.counted && r.net === null && !byMonth[bookingMonth_(r)]) {
       var est = r.nights && perNight ? perNight * r.nights : perStay;

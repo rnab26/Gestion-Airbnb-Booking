@@ -127,9 +127,11 @@ async function main() {
   await page.click('nav.tabs button[data-tab=revenus]');
   await page.waitForSelector('.kpi');
   const rev = await page.textContent('.wrap');
-  assert.match(rev, /Booking : factures lues/);
+  assert.match(rev, /Revenus nets par mois/);
+  assert.ok(rev.indexOf('Revenus nets par mois') < rev.indexOf('Factures Booking 2026 (1)'), 'les revenus par mois avant les factures');
+  assert.equal(await page.$eval('#invoices', e => e.open), false, 'factures repliées');
   assert.match(rev, /novembre/);
-  assert.match(rev, /18,5 %/);
+  assert.match(rev, /séjour\(s\) de 2026 sans montant/, 'alerte limitée à l’année affichée');
   await shot(page, '05-revenus');
 
   // 6. Réservations : recherche, modification, montant
@@ -143,6 +145,8 @@ async function main() {
   await item.click();
   await page.waitForSelector('#resForm');
   await page.fill('textarea[name=sharedNote]', 'Arrivée tardive vers 22h');
+  assert.equal(await page.isVisible('input[name=phone]'), false, 'infos repliées sous « Modifier les informations »');
+  await page.click('#resEdit summary');
   await page.fill('input[name=phone]', '06 12 34 56 78');
   await page.fill('input[name=checkout]', '2026-10-30');
   assert.equal(await page.textContent('[data-dow=checkout]'), 'Ven. 30 oct. 2026', 'jour de la semaine sous la date');
@@ -213,12 +217,12 @@ async function main() {
   await page.fill('#resQ', '');
   // Revenus : commissions par plateforme et détail des paiements d'octobre (déroulant).
   await page.click('nav.tabs button[data-tab=revenus]');
-  assert.match(await page.textContent('.wrap'), /Brut [\d\s,]+€ − commissions [\d\s,]+€/);
+  assert.match(await page.textContent('.wrap'), /Commissions [\d\s,]+€ \(\d+(,\d)? % du brut/);
   await page.click('details[data-mdet="2026-10"] summary');
   const pays = await page.textContent('details[data-mdet="2026-10"]');
   assert.match(pays, /Claire Martin/);
   assert.match(pays, /Jean Dupont/);
-  assert.match(pays, /brut [\d\s,]+€ − comm\. [\d\s,]+€/);
+  assert.match(pays, /[\d\s,]+€ − comm\. [\d\s,]+€/);
   await shot(page, '07d-revenus-detail-octobre');
   await page.click('details[data-mdet="2026-10"] .pay:has-text("Claire Martin")');
   await page.waitForSelector('#resForm');

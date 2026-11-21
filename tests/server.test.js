@@ -959,3 +959,37 @@ test('Export Booking : annulation avec tarif mais sans commission = rien dû, et
   assert.match(d.importResult.message, /^0 nouvelle\(s\), 1 mise\(s\) à jour/);
   assert.ok(d.importResult.details.some(x => /^Facture octobre 2026 : net identique/.test(x)));
 });
+
+// Vrai e-mail Airbnb de 2024 (vérifié le 22 nov. 2026) : pas de « VOUS GAGNEZ », le net est le TOTAL du versement.
+test('Airbnb : e-mail de 2024 → net = TOTAL du versement, commission = frais de service', () => {
+  const { ctx } = createEnv();
+  const body = ['CODE DE CONFIRMATION', 'HMOLD00001', '', 'LE VOYAGEUR A PAYÉ', '90,00 € x 4 nuits 360,00 €', 'Frais de ménage 60,00 €',
+    'Frais de service voyageur 0,00 €', 'Taxes de séjour 35,10 €', 'TOTAL (EUR) 455,10 €', '', 'VERSEMENT DE L\'HÔTE',
+    '90,00 € x 4 nuits 360,00 €', 'Frais de ménage 60,00 €', 'Frais de service -75,60 €', 'TOTAL (EUR) 344,40 €', '',
+    'L\'argent que vous gagnez en tant qu\'hôte vous sera envoyé'].join('\n');
+  const p = ctx.parseAirbnbConfirmation_('Réservation confirmée : Ana Test arrive le 20 mai', body, '2024-05-01');
+  assert.equal(p.amountNet, '344.4');
+  assert.equal(p.paidByGuest, '455.1');
+  assert.equal(p.commission, '75.6');
+});
+
+test('Booking à venir (pas encore dans l’export) : estimation = nuits × net moyen par nuit des séjours exacts', () => {
+  const { env, owner } = setup();
+  withInvoice(env);
+  const d = importFile(env, owner, bx.xls());
+  // 7100000003 (15 → 18 nov.) n'a pas de prix si on le retire de l'export : on simule un séjour à venir sans montant.
+  const sh = env.sheet('Reservations'); const h = sh.data[0];
+  const add = (key, ci, co) => { const row = h.map(c => ''); row[h.indexOf('id')] = key; row[h.indexOf('key')] = key; row[h.indexOf('source')] = 'booking';
+    row[h.indexOf('origin')] = 'email'; row[h.indexOf('status')] = 'confirmed'; row[h.indexOf('checkin')] = ci; row[h.indexOf('checkout')] = co; sh.data.push(row); };
+  add('booking:7200000001', '2027-01-10', '2027-01-12');
+  add('booking:7200000002', '2027-01-20', '2027-01-26');
+  const e = env.api(owner, 'load');
+  const two = byKey(e, 'booking:7200000001'), six = byKey(e, 'booking:7200000002');
+  assert.equal(two.amountKind, 'estimé');
+  assert.ok(two.net > 0);
+  assert.equal(Math.round(six.net / six.nights * 100), Math.round(two.net / two.nights * 100), 'même net par nuit');
+  assert.ok(six.net > two.net * 2.5, 'un séjour de 6 nuits est estimé ~3× un séjour de 2 nuits');
+  const exact = d.reservations.filter(r => r.source === 'booking' && r.amountKind === 'exact' && r.nights && r.counted && r.status !== 'cancelled');
+  const avg = exact.reduce((s, r) => s + r.net, 0) / exact.reduce((s, r) => s + r.nights, 0);
+  assert.ok(Math.abs(two.net - 2 * avg) < 0.05, two.net + ' vs ' + 2 * avg);
+});
