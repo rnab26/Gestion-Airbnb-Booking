@@ -103,6 +103,16 @@ async function main() {
   assert.ok(await page.$eval('[data-day="2026-12-20"]', (e) => e.classList.contains('blocked')));
   await shot(page, '04b-decembre-dates-fermees');
   await page.click('#calToday');
+  // Novembre : l'annulation n'est plus dans la liste, elle est dans « Annulations du mois »
+  await page.click('#calNext');
+  await page.waitForSelector('#cancelBox');
+  assert.match(await page.textContent('#cancelBox summary'), /Annulations du mois \(1\)/);
+  assert.ok(!(await page.isVisible('#cancelBox .item')), 'volet replié par défaut');
+  const outside = await page.$$eval('.wrap > .item', (els) => els.map((e) => e.textContent).join(' '));
+  assert.ok(!/Annulée/.test(outside), 'aucune annulation dans la liste principale');
+  await page.click('#cancelBox summary');
+  await shot(page, '04c-annulations-du-mois');
+  await page.click('#calToday');
   // Détail d'un jour + ajout d'une note visible gestionnaire
   await page.click('[data-day="2026-10-29"]', { position: { x: 12, y: 12 } });
   await page.waitForSelector('.modal');

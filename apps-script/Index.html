@@ -515,9 +515,14 @@ function viewPlanning() {
   var notes = S.data.notes.filter(function (n) { return monthOf(n.date) === ym || (n.endDate && n.date < ym + '-01' && n.endDate >= ym + '-01'); });
   var html = banners() + '<div class="card">' + calendarHtml() + '</div>';
   html += '<div class="row"><button class="btn primary" id="addRes">+ Réservation</button><button class="btn" id="addNote">+ Note</button></div>';
+  // Les annulations ne polluent pas la liste : elles sont regroupées dans un volet repliable.
+  var cancelled = res.filter(function (r) { return r.status === 'cancelled'; });
+  res = res.filter(function (r) { return r.status !== 'cancelled'; });
   html += '<h2>En ' + monthTitle(ym) + '</h2>';
   if (!res.length && !notes.length) html += '<div class="empty">Aucune réservation ni note ce mois-ci.</div>';
   html += res.map(function (r) { return resCard(r); }).join('') + notes.map(noteCard).join('');
+  if (cancelled.length) html += '<details class="card" id="cancelBox"><summary>Annulations du mois (' + cancelled.length + ')</summary>' +
+    cancelled.map(function (r) { return resCard(r); }).join('') + '</details>';
   return html;
 }
 function bindPlanning(root) {

@@ -754,3 +754,28 @@ test('Booking : message du client → nom, arrivée et départ (séjour passé h
   assert.equal(r.checkout, '2026-05-09');
   assert.equal(r.nights, 3);
 });
+
+// Cas réel du 21 nov. 2026 : Booking exporte la réservation du 29 déc. et les dates fermées qui suivent
+// (jusqu'à la fin de son calendrier) en UNE plage de 322 nuits → prise pour un séjour à ≈ 41 654 €.
+test('Booking : plage iCal séjour + fermeture (322 nuits) → départ inconnu, pas de montant géant', () => {
+  const { env, owner } = setup();
+  env.gmail.messages.push({ id: 'b40', from: 'noreply@booking.com', date: new Date().toISOString(),
+    subject: 'Booking.com - Nouvelle réservation ! (7400000001, mardi 29 décembre 2026)', body: '' });
+  const longEv = ['BEGIN:VEVENT', 'DTSTAMP:20261027T080000Z', 'DTSTART;VALUE=DATE:20261229', 'DTEND;VALUE=DATE:20271116',
+    'UID:b40@booking.com', 'SUMMARY:CLOSED - Not available', 'END:VEVENT'].join('\r\n');
+  env.fetchMap[BOOKING_URL] = { body: bookingIcs().replace('END:VCALENDAR', longEv + '\r\nEND:VCALENDAR') };
+  let d = env.api(owner, 'sync');
+  let r = byKey(d, 'booking:7400000001');
+  assert.equal(r.checkout, '', 'départ inconnu, pas le 16 nov. 2027');
+  assert.ok(!(r.net > 2000), 'pas de montant géant : ' + r.net);
+  const blk = d.reservations.find(x => x.status === 'blocked' && x.checkin === '2026-12-29' && x.checkout === '2027-11-16');
+  assert.ok(blk, 'le reste de la plage est affiché bloqué');
+  // Une donnée déjà faussée par l'ancienne version est réparée à la synchro suivante.
+  const sh = env.sheet('Reservations'); const h = sh.data[0];
+  const i = sh.data.findIndex(x => x[h.indexOf('key')] === 'booking:7400000001');
+  sh.data[i][h.indexOf('checkout')] = '2027-11-16';
+  d = env.api(owner, 'sync');
+  r = byKey(d, 'booking:7400000001');
+  assert.equal(r.checkout, '', 'ancien départ aberrant effacé');
+  assert.ok(!d.reservations.some(x => x.status !== 'blocked' && x.nights > 45), 'aucun séjour de plus de 45 nuits');
+});
