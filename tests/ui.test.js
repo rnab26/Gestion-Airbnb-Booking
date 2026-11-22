@@ -156,6 +156,14 @@ async function main() {
   // Téléphone complet : bouton WhatsApp (numéro français → +33), sans ouvrir la réservation.
   assert.equal(await page.getAttribute('.item:has-text("Jean Dupont") [data-wa]', 'data-wa'), 'https://wa.me/33612345678');
   assert.match(await page.textContent('.item:has-text("Jean Dupont")'), /Dim\. 25 oct\. → Jeu\. 29 oct\./);
+  // Fiche : boutons WhatsApp, Appeler et Airbnb.
+  await page.click('.item:has-text("Jean Dupont")');
+  await page.waitForSelector('.sheet');
+  assert.equal(await page.getAttribute('.sh-actions .wa-btn', 'href'), 'https://wa.me/33612345678');
+  assert.equal(await page.getAttribute('.sh-actions a:has-text("Écrire sur Airbnb")', 'href'), 'https://www.airbnb.fr/hosting/reservations/details/HMTEST0001');
+  assert.ok(await page.isVisible('.sh-actions a:has-text("Appeler")'));
+  await shot(page, '06b-fiche-airbnb');
+  await page.click('[data-close]');
   // Réservation directe : ajout puis suppression avec confirmation
   await page.click('#addRes2');
   await page.fill('input[name=guest]', 'Cousin Paul');
@@ -211,7 +219,11 @@ async function main() {
   assert.match(modal, /Prix payé par le client500,00\s€/);
   assert.match(modal, /Commission \+ frais de paiement Booking \(\d+,?\d* %\)− /);
   assert.match(modal, /Net pour toi/);
-  assert.match(modal, /🌍 Israël/);
+  assert.match(await page.textContent('.sheet'), /🌍\s*Israël/);
+  assert.match(await page.textContent('.sh-dates'), /ArrivéeDim\. 20 déc\.dès 15:003\s*nuitsDépartMer\. 23 déc\.avant 10:00/);
+  assert.equal(await page.getAttribute('.sh-actions a:has-text("Écrire sur Booking")', 'href'), 'https://admin.booking.com/');
+  await page.click('[data-addphone]');
+  assert.ok(await page.isVisible('input[name=phone]'), '« Ajouter le numéro » ouvre le champ téléphone');
   await shot(page, '07c-fiche-reservation-booking');
   await page.click('[data-close]');
   await page.fill('#resQ', '');

@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.5.2'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.5.3'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -61,7 +61,9 @@ var DEFAULT_SETTINGS = {
   autoUpdateEnabled: true,
   // Page installable (GitHub Pages) qui affiche l'application : les liens partagés
   // passent par elle pour pouvoir « Installer l'application » depuis Chrome. Vide = liens directs.
-  appUrl: 'https://rnab26.github.io/Gestion-Airbnb-Booking/'
+  appUrl: 'https://rnab26.github.io/Gestion-Airbnb-Booking/',
+  // N° d'établissement Booking (extranet, « hotel_id ») : pour ouvrir une réservation dans l'extranet depuis la fiche.
+  bookingHotelId: ''
 };
 var SYNC_HOURS_ALLOWED = [1, 2, 4, 6, 12, 24];
 // Champs qu'une modification à la main protège contre la synchronisation.
@@ -459,6 +461,9 @@ function saveSettings_(p) {
   if (app && !/^https:\/\/[^\s#?]+\/$/.test(app)) throw new Error('Adresse de l\'application : https://… se terminant par /, ou vide.');
   next.appUrl = app;
   next.autoUpdateEnabled = !!p.autoUpdateEnabled;
+  var hid = String(p.bookingHotelId === undefined ? cur.bookingHotelId : p.bookingHotelId || '').replace(/\s/g, '');
+  if (hid && !/^\d{4,12}$/.test(hid)) throw new Error('N° d\'établissement Booking : des chiffres seulement (ex. 1234567), ou vide.');
+  next.bookingHotelId = hid;
   PropertiesService.getScriptProperties().setProperty('settings', JSON.stringify(next));
   if (next.syncEveryHours !== cur.syncEveryHours) installTrigger_(next.syncEveryHours);
 }

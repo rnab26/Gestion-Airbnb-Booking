@@ -94,6 +94,19 @@ details.mdet>summary .mrow{border-bottom:0}
 details.mdet[open]>summary .mrow{font-weight:600}
 .pay{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:7px 4px 7px 10px;border-left:3px solid var(--line);margin:0 0 6px 4px;font-size:13px;cursor:pointer}
 .pay .muted{font-size:12px}
+.sheet{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;margin:6px 0 12px}
+.sh-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.sh-dates{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px}
+.sh-dates>div{display:flex;flex-direction:column}
+.sh-dates>div:last-child{text-align:right}
+.sh-dates .l{font-size:12px;color:var(--muted)}
+.sh-dates b{font-size:17px}
+.sh-n{text-align:center;font-size:12px;color:var(--muted);line-height:1.2}
+.sh-info{display:grid;gap:6px;margin:10px 2px;font-size:15px}
+.sh-info>div{display:flex;gap:8px;align-items:baseline}
+.sh-actions{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 6px}
+.sh-actions .btn{flex:1;min-width:120px;text-align:center;text-decoration:none;color:inherit;font-weight:600}
+.btn.wa-btn{background:#25D366;border-color:#25D366;color:#fff !important}
 .sumbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:6px 0 10px;font-size:14px;line-height:1.6}
 .money{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
 .money b{text-align:right}
@@ -685,6 +698,38 @@ function bindResas(root) {
   $('#addRes2', root).onclick = function () { var d = S.data.today; editReservation({ checkin: d, checkout: addDays(d, 1), source: 'direct', origin: 'manual', status: 'confirmed' }); };
 }
 
+// Fiche d'un séjour : qui, quand, combien de personnes, d'où, comment le joindre, combien il rapporte.
+function resCode(r) { return r.code || String(r.key || '').replace(/^(airbnb|booking):/, ''); }
+function platformLink(r) {
+  var code = resCode(r);
+  if (r.source === 'airbnb' && /^HM[A-Z0-9]{6,}$/.test(code)) return { label: 'Écrire sur Airbnb', url: 'https://www.airbnb.fr/hosting/reservations/details/' + code };
+  if (r.source === 'booking' && /^\d{6,14}$/.test(code)) {
+    var hid = S.data.settings.bookingHotelId;
+    return { label: 'Écrire sur Booking', url: hid ? 'https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/booking.html?res_id=' + code + '&hotel_id=' + hid + '&lang=fr' : 'https://admin.booking.com/' };
+  }
+  return null;
+}
+function resSheet(r) {
+  var s = S.data.settings;
+  var wa = waLink(r.phone);
+  var pl = platformLink(r);
+  var head = '<div class="sh-head"><span class="badge ' + esc(r.source) + '">' + esc(SRC[r.source] || 'Direct') + '</span>' +
+    (r.status === 'cancelled' ? '<span class="badge err">Annulée</span>' : '') +
+    (resCode(r) && r.source !== 'direct' ? '<span class="small muted">n° ' + esc(resCode(r)) + '</span>' : '') + '</div>';
+  var dates = '<div class="sh-dates"><div><span class="l">Arrivée</span><b>' + fmtDate(r.checkin) + '</b><span class="small muted">dès ' + esc(s.checkinTime) + '</span></div>' +
+    '<div class="sh-n">' + (r.nights ? r.nights + '<br>nuit' + (r.nights > 1 ? 's' : '') : '') + '</div>' +
+    '<div><span class="l">Départ</span><b>' + (r.checkout ? fmtDate(r.checkout) : 'inconnu') + '</b><span class="small muted">' + (r.checkout ? 'avant ' + esc(s.checkoutTime) : '') + '</span></div></div>';
+  var info = '<div class="sh-info">' +
+    '<div><span>👥</span>' + (r.guestsText ? esc(r.guestsText) : r.guestsCount ? esc(r.guestsCount) + ' personne(s)' : '<span class="muted">Voyageurs non indiqués</span>') + '</div>' +
+    '<div><span>🌍</span>' + (r.location ? esc(r.location) : '<span class="muted">Pays non indiqué</span>') + '</div>' +
+    '<div><span>📞</span>' + (wa ? '<a href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">' + esc(r.phone) + '</a>'
+      : r.phone ? esc(r.phone) + ' <span class="muted">(numéro incomplet)</span>' : '<span class="muted">Pas de numéro</span>') + '</div></div>';
+  var actions = '<div class="sh-actions">' +
+    (wa ? '<a class="btn wa-btn" target="_blank" rel="noopener" href="' + esc(wa) + '">WhatsApp</a><a class="btn" href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">Appeler</a>' : '') +
+    (pl ? '<a class="btn" target="_blank" rel="noopener" href="' + esc(pl.url) + '">' + esc(pl.label) + '</a>' : '') +
+    (!wa ? '<button type="button" class="btn" data-addphone>+ Ajouter le numéro</button>' : '') + '</div>';
+  return '<div class="sheet">' + head + dates + info + (isOwner() ? actions + moneyRows(r) : '') + '</div>';
+}
 function editReservation(r) {
   var isNew = !r.id;
   var manual = isNew || r.origin === 'manual';
@@ -694,14 +739,9 @@ function editReservation(r) {
     : r.origin === 'ical' ? 'Vue dans le calendrier ' + (SRC[src] || '') + ' (pas d\'e-mail correspondant)'
     : r.origin === 'export' ? 'Importée de l\'export Booking' + (r.code ? ' · n° ' + esc(r.code) : '') : 'Saisie à la main';
   var html = '<div class="spread"><h3>' + (isNew ? 'Nouvelle réservation' : esc(guestLabel(r))) + '</h3><button class="btn ghost small" data-close>✕</button></div>' +
-    (isNew ? '' : '<p class="small muted" style="margin-top:-4px">' + originTxt + (locked.filter(function (f) { return f !== 'hidden'; }).length ? ' · modifiée à la main' : '') + '</p>') +
-    (isNew || r.status === 'blocked' ? '' : '<div class="sumbox" id="resSummary">' +
-      '<div>🟢 <b>' + fmtDate(r.checkin, true) + '</b> → 🔴 <b>' + (r.checkout ? fmtDate(r.checkout, true) : 'départ inconnu') + '</b>' + (r.nights ? ' · ' + r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') + '</div>' +
-      ((r.guestsText || r.guestsCount || r.location) ? '<div>' + [r.guestsText ? '👥 ' + esc(r.guestsText) : (r.guestsCount ? '👥 ' + esc(r.guestsCount) + ' personne(s)' : ''), r.location ? '🌍 ' + esc(r.location) : ''].filter(Boolean).join(' · ') + '</div>' : '') +
-      (r.phone ? '<div>📞 ' + (waLink(r.phone) ? '<a href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">' + esc(r.phone) + '</a>' : esc(r.phone)) + waChip(r.phone) + '</div>' : '') +
-      (isOwner() ? moneyRows(r) : '') + '</div>') +
+    (isNew || r.status === 'blocked' ? '' : resSheet(r)) +
     '<form id="resForm">' +
-    (isNew ? '' : '<details id="resEdit"' + (r.status === 'blocked' ? ' open' : '') + '><summary>Modifier les informations</summary>') +
+    (isNew ? '' : '<details id="resEdit"' + (r.status === 'blocked' ? ' open' : '') + '><summary>Modifier les informations</summary><p class="small muted">' + originTxt + (locked.filter(function (f) { return f !== 'hidden'; }).length ? ' · modifiée à la main' : '') + '</p>') +
     (manual ? '<label class="f"><span>Plateforme</span><select name="source">' + ['direct', 'airbnb', 'booking'].map(function (k) { return '<option value="' + k + '"' + (src === k ? ' selected' : '') + '>' + (k === 'direct' ? 'Direct (sans plateforme)' : SRC[k]) + '</option>'; }).join('') + '</select></label>' : '') +
     '<label class="f"><span>Voyageur</span><input type="text" name="guest" value="' + esc(r.guest || '') + '" placeholder="Nom du voyageur"></label>' +
     '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Arrivée</span><input type="date" name="checkin" required value="' + esc(r.checkin || '') + '"><span class="dowhint" data-dow="checkin">' + (r.checkin ? fmtDate(r.checkin, true) : '') + '</span></label>' +
@@ -728,6 +768,8 @@ function editReservation(r) {
     m.querySelector('[data-close]').onclick = closeModal;
     var f = m.querySelector('#resForm');
     f.querySelector('[name=status]').onchange = function () { m.querySelector('#keepRow').style.display = this.value === 'cancelled' ? '' : 'none'; };
+    var ap = m.querySelector('[data-addphone]');
+    if (ap) ap.onclick = function () { var d = m.querySelector('#resEdit'); if (d) d.open = true; var i = f.querySelector('[name=phone]'); if (i) { i.focus(); i.scrollIntoView({ block: 'center' }); } };
     ['checkin', 'checkout'].forEach(function (k) {
       f.querySelector('[name=' + k + ']').addEventListener('input', function () {
         f.querySelector('[data-dow=' + k + ']').textContent = /^\d{4}-\d{2}-\d{2}$/.test(this.value) ? fmtDate(this.value, true) : '';
@@ -829,6 +871,7 @@ function viewSettings() {
     '<div class="card"><h3>Calendriers (dates à jour)</h3>' +
     '<label class="f"><span>Lien calendrier Airbnb (.ics)</span><input type="url" name="icalAirbnb" value="' + esc(s.icalAirbnb) + '" placeholder="https://www.airbnb.fr/calendar/ical/….ics?s=…"></label>' +
     '<label class="f"><span>Lien calendrier Booking (.ics)</span><input type="url" name="icalBooking" value="' + esc(s.icalBooking) + '" placeholder="https://ical.booking.com/v1/export?t=…"></label>' +
+    '<label class="f"><span>N° d\'établissement Booking (pour « Écrire sur Booking »)</span><input type="text" inputmode="numeric" name="bookingHotelId" value="' + esc(s.bookingHotelId || '') + '" placeholder="ex. 1234567 (en haut de l\'extranet)"></label>' +
     '<details><summary>Où trouver ces liens ?</summary><div class="help"><b>Airbnb</b> (appli ou site) :<ol><li>Annonces › ton logement › Disponibilités</li><li>« Associer des calendriers » (ou « Synchronisation des calendriers »)</li><li>« Exporter le calendrier » › copier le lien</li></ol>' +
     '<b>Booking</b> (extranet admin.booking.com) :<ol><li>Tarifs et disponibilités › Synchroniser les calendriers</li><li>« Exporter le calendrier » › copier le lien</li></ol>Colle chaque lien ici puis Enregistrer : la synchro se lance toute seule.</div></details></div>' +
     '<div class="card"><h3>Revenus</h3><label class="f"><span>Commission Booking totale (%)</span><input type="text" inputmode="decimal" name="bookingCommissionPct" value="' + esc(String(s.bookingCommissionPct).replace('.', ',')) + '" placeholder="Automatique"></label>' +
@@ -957,7 +1000,7 @@ function bindSettings(root) {
     e.preventDefault();
     var fd = new FormData(f);
     var p = {};
-    ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
+    ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingHotelId', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
     p.syncEveryHours = +p.syncEveryHours;
     ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerShowPhone', 'managerCanAddNotes', 'autoUpdateEnabled'].forEach(function (k) { p[k] = !!fd.get(k); });
     var before = S.data.settings;
