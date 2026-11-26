@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.6.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.6.1'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -70,8 +70,13 @@ var DEFAULT_SETTINGS = {
   // Repères remplacés : {prénom} {gestionnaire} {arrivée} {départ} {heure} {guide}.
   managerWaMessage: 'Bonjour {prénom} 👋\nJe suis {gestionnaire}, je m\'occupe de votre arrivée à l\'appartement le {arrivée} (à partir de {heure}).\n\n{guide}\n\nJe reste disponible ici sur WhatsApp. Bon séjour !',
   // Guide d'arrivée (adresse, accès, boîte à clés, Wi-Fi…) inséré à la place de {guide}. Vide = ligne retirée.
-  arrivalGuide: ''
+  arrivalGuide: '',
+  // Ce que touche la gestionnaire par location (€), affiché en haut de sa page. 0 = rien d'affiché.
+  managerFee: 50,
+  // Mois auquel une location lui est comptée : 'checkout' (départ = ménage) ou 'checkin' (arrivée).
+  managerFeeBasis: 'checkout'
 };
+var MANAGER_FEE_MAX = 1000;
 var MIN_NIGHTS_MAX = 30;
 var SYNC_HOURS_ALLOWED = [1, 2, 4, 6, 12, 24];
 // Champs qu'une modification à la main protège contre la synchronisation.
@@ -287,6 +292,8 @@ function managerData_() {
     reservations: res,
     // Jours fermés : seulement des dates et un type, jamais la plateforme ni la raison détaillée.
     closures: closuresFor_(all, s.minNights).filter(function (c) { return c.end > from; }),
+    // Ses revenus à elle (forfait par location), jamais ceux du propriétaire.
+    pay: managerPay_(all, s, today),
     notes: notes,
     version: APP_VERSION
   };
@@ -489,6 +496,11 @@ function saveSettings_(p) {
   var wm = p.managerWaMessage === undefined ? cur.managerWaMessage : str_(p.managerWaMessage, 2000).trim();
   next.managerWaMessage = wm || DEFAULT_SETTINGS.managerWaMessage;
   next.arrivalGuide = p.arrivalGuide === undefined ? cur.arrivalGuide : str_(p.arrivalGuide, 6000).trim();
+  var feeRaw = p.managerFee === undefined ? String(cur.managerFee) : String(p.managerFee === null ? '' : p.managerFee).trim();
+  var fee = feeRaw === '' ? 0 : Number(feeRaw.replace(/€/g, '').replace(/\s/g, '').replace(',', '.'));
+  if (isNaN(fee) || fee < 0 || fee > MANAGER_FEE_MAX) throw new Error('Revenus de la gestionnaire : un montant par location entre 0 et ' + MANAGER_FEE_MAX + ' €, ou vide pour ne rien afficher.');
+  next.managerFee = round2_(fee);
+  next.managerFeeBasis = p.managerFeeBasis === undefined ? cur.managerFeeBasis : (p.managerFeeBasis === 'checkin' ? 'checkin' : 'checkout');
   PropertiesService.getScriptProperties().setProperty('settings', JSON.stringify(next));
   if (next.syncEveryHours !== cur.syncEveryHours) installTrigger_(next.syncEveryHours);
 }
@@ -2032,6 +2044,40 @@ function applyBookingExport_(records, rows, invoices, now) {
 /** Réservation qui occupe le logement (ni annulée, ni simple fermeture de dates, ni masquée). */
 function isActive_(r) {
   return r.status !== 'cancelled' && r.status !== 'blocked' && r.hidden !== '1';
+}
+
+/**
+ * Revenus de la gestionnaire : forfait (managerFee) × locations, par mois (du départ ou de l'arrivée),
+ * du mois dernier (s'il en a) jusqu'au dernier mois réservé. Le mois en cours est toujours présent.
+ * Une location annulée ou masquée ne compte pas (pas de ménage).
+ */
+function managerPay_(rows, s, today) {
+  var fee = Number(s.managerFee) || 0;
+  if (fee <= 0) return null;
+  var basis = s.managerFeeBasis === 'checkin' ? 'checkin' : 'checkout';
+  var curYm = today.slice(0, 7);
+  var prevYm = addDays_(curYm + '-01', -1).slice(0, 7);
+  var byYm = {};
+  byYm[curYm] = { ym: curYm, count: 0, done: 0, items: [] };
+  rows.forEach(function (r) {
+    if (!isActive_(r) || !isYmd_(r.checkin)) return;
+    var d = basis === 'checkin' || !isYmd_(r.checkout) ? r.checkin : r.checkout;
+    var ym = d.slice(0, 7);
+    if (ym < prevYm) return;
+    var m = byYm[ym] || (byYm[ym] = { ym: ym, count: 0, done: 0, items: [] });
+    m.count++;
+    if (d < today) m.done++;
+    m.items.push({ date: d, guest: s.managerShowGuestName ? firstName_(r.guest) : '' });
+  });
+  var months = Object.keys(byYm).sort().map(function (k) {
+    var m = byYm[k];
+    m.items.sort(function (a, b) { return a.date.localeCompare(b.date); });
+    m.amount = round2_(m.count * fee);
+    return m;
+  });
+  var toCome = 0;
+  months.forEach(function (m) { if (m.ym >= curYm) toCome += m.count - m.done; });
+  return { fee: fee, basis: basis, months: months, toCome: round2_(toCome * fee) };
 }
 
 /**
