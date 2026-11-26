@@ -329,36 +329,35 @@ test('Gestionnaire : couleurs, jours fermés, heure, message WhatsApp ; aperçu 
   assert.ok(Array.isArray(o.closures) && o.nowTime);
 });
 
-test('Gestionnaire : ses revenus (forfait par location) par mois, réglables, jamais ceux du propriétaire', () => {
+test('Gestionnaire : ses revenus, 50 € à chaque départ, mois par mois (perçu / à venir), jamais ceux du propriétaire', () => {
   const { env, owner, manager, data } = setup();
-  // On est le 27 oct. 2026 : Jean part le 29 oct. ; Booking 4→7 nov. et 15→18 nov. ; Airbnb 1→5 déc. Annulations exclues.
+  // On est le 27 oct. 2026 : Jean part le 29 oct. ; Booking : départs 7 et 18 nov. ; Airbnb : départ 5 déc. Annulations exclues.
   let p = env.api(manager, 'load').pay;
   const j = x => JSON.parse(JSON.stringify(x));
   assert.equal(p.fee, 50);
-  assert.equal(p.basis, 'checkout');
-  assert.deepEqual(j(p.months).map(m => [m.ym, m.count, m.done, m.amount]), [['2026-10', 1, 0, 50], ['2026-11', 2, 0, 100], ['2026-12', 1, 0, 50]]);
-  assert.deepEqual(j(p.months[0].items), [{ date: '2026-10-29', guest: 'Jean' }]);
-  assert.equal(p.toCome, 200);
-  // Compté à l'arrivée, 45,5 € : Jean est arrivé le 25 → location faite.
-  env.api(owner, 'saveSettings', Object.assign({}, data.settings, { managerFee: '45,5', managerFeeBasis: 'checkin' }));
-  p = env.api(manager, 'load').pay;
-  assert.deepEqual(j(p.months[0]), { ym: '2026-10', count: 1, done: 1, items: [{ date: '2026-10-25', guest: 'Jean' }], amount: 45.5 });
-  assert.equal(p.toCome, 136.5);
-  // Prénom masqué si le propriétaire le cache ; vide = plus rien d'affiché ; montant absurde refusé.
-  let d = env.api(owner, 'saveSettings', Object.assign({}, data.settings, { managerShowGuestName: false }));
-  assert.equal(env.api(manager, 'load').pay.months[0].items[0].guest, '');
+  assert.deepEqual(j(p.months), {
+    '2026-10': { count: 1, paidCount: 0, amount: 50, paid: 0, toCome: 50 },
+    '2026-11': { count: 2, paidCount: 0, amount: 100, paid: 0, toCome: 100 },
+    '2026-12': { count: 1, paidCount: 0, amount: 50, paid: 0, toCome: 50 }
+  });
+  assert.ok(!JSON.stringify(p).includes('Jean'), 'que des montants, pas de liste');
+  // Montant changé par le propriétaire ; vide = plus rien d'affiché ; montant absurde refusé.
+  let d = env.api(owner, 'saveSettings', Object.assign({}, data.settings, { managerFee: '45,5' }));
+  assert.equal(env.api(manager, 'load').pay.months['2026-11'].amount, 91);
   d = env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: '' }));
   assert.equal(d.settings.managerFee, 0);
   assert.equal(env.api(manager, 'load').pay, null);
-  assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: 'abc' })), /un montant par location/);
-  assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: '5000' })), /un montant par location/);
-  // Le mois en cours est toujours là, même vide ; le mois dernier seulement s'il a des locations.
+  assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: 'abc' })), /un montant par départ/);
+  assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: '5000' })), /un montant par départ/);
+  // Départ du jour : perçu seulement après l'heure de départ (le ménage commence alors).
   const { ctx } = createEnv();
-  const empty = j(ctx.managerPay_([], { managerFee: 50 }, '2026-11-26'));
-  assert.deepEqual(empty.months, [{ ym: '2026-11', count: 0, done: 0, items: [], amount: 0 }]);
-  const withPrev = j(ctx.managerPay_([{ checkin: '2026-10-20', checkout: '2026-10-22', status: 'confirmed' }, { checkin: '2026-09-01', checkout: '2026-09-03', status: 'confirmed' }], { managerFee: 50 }, '2026-11-26'));
-  assert.deepEqual(withPrev.months.map(m => m.ym), ['2026-10', '2026-11']);
-  assert.equal(withPrev.toCome, 0);
+  const rows = [{ checkin: '2026-11-20', checkout: '2026-11-26', status: 'confirmed' }, { checkin: '2026-11-10', checkout: '2026-11-12', status: 'confirmed' },
+    { checkin: '2026-11-27', checkout: '2026-11-30', status: 'confirmed' }, { checkin: '2026-11-01', checkout: '2026-11-03', status: 'cancelled' },
+    { checkin: '2026-08-01', checkout: '2026-08-03', status: 'confirmed' }];
+  const s = { managerFee: 50, checkoutTime: '10:00' };
+  assert.deepEqual(j(ctx.managerPay_(rows, s, '2026-11-26', '09:30', '2026-10-27').months), { '2026-11': { count: 3, paidCount: 1, amount: 150, paid: 50, toCome: 100 } });
+  assert.deepEqual(j(ctx.managerPay_(rows, s, '2026-11-26', '10:30', '2026-10-27').months['2026-11']), { count: 3, paidCount: 2, amount: 150, paid: 100, toCome: 50 });
+  assert.deepEqual(j(ctx.managerPay_([], s, '2026-11-26', '10:30', '2026-10-27').months), {});
 });
 
 test('Réglages : durée minimale et message WhatsApp contrôlés', () => {

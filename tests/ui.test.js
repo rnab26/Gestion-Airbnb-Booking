@@ -272,14 +272,10 @@ async function main() {
   for (const bad of ['412', 'Revenus nets', 'HMTEST', 'Dupont', 'Réglages', 'facture', 'commission']) assert.ok(!mtext.includes(bad), 'gestionnaire voit : ' + bad);
   const outsidePay = mtext.replace(await mp.innerText('#payCard'), '');
   assert.ok(!outsidePay.includes('€'), 'aucun montant hors de « Tes revenus »');
-  // « Tes revenus » en haut, au-dessus du calendrier : octobre = 4 départs (Paul, Claire, Marco, Jean) × 50 €.
+  // « Tes revenus » en haut, au-dessus du calendrier, pour le mois affiché : octobre = 4 départs
+  // (Paul 1er, Claire 4, Marco 11 : perçus ; Jean 29 : à venir) × 50 €.
   assert.ok(mtext.indexOf('Tes revenus') < mtext.indexOf('Aujourd'), 'au-dessus du calendrier');
-  assert.match(await mp.textContent('#payCard'), /50\s€ par location/);
-  assert.match(await mp.textContent('[data-pay="2026-10"] summary'), /Octobre.*ce mois-ci.*4 locations · 3 faites, 1 à venir.*200\s€/s);
-  assert.match(await mp.textContent('[data-pay="2026-11"] summary'), /Novembre.*locations.*€/s);
-  await mp.click('[data-pay="2026-10"] summary');
-  assert.match(await mp.textContent('[data-pay="2026-10"]'), /Jean.*ménage Jeu\. 29 oct\./s);
-  await mp.click('[data-pay="2026-10"] summary');
+  assert.match(await mp.textContent('#payCard'), /Tes revenus · Octobre\s*200\s€\s*4 départs × 50\s€\s*✅ Déjà perçu 150\s€\s*⏳ À venir 50\s€/);
   assert.match(mtext, /Changer les draps/);
   assert.match(mtext, /Arrivée tardive vers 22h/);
   assert.match(mtext, /Ménage/);
@@ -308,6 +304,7 @@ async function main() {
   await shot(mp, '08b-gestionnaire-fiche');
   await mp.click('[data-close]');
   await mp.click('#calNext');
+  assert.match(await mp.textContent('#payCard'), /Tes revenus · Novembre\s*100\s€\s*2 départs × 50\s€\s*✅ Déjà perçu 0\s€\s*⏳ À venir 100\s€/, 'la case suit le mois du calendrier');
   assert.match(await mp.getAttribute('[data-bar-start="2026-11-04"]', 'style'), /var\(--booking\)/, 'couleur Booking');
   assert.ok(await mp.$eval('[data-day="2026-11-25"]', e => e.classList.contains('blocked')), 'fermeture Airbnb en gris foncé');
   await mp.click('[data-bar-start="2026-11-04"]');
