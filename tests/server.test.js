@@ -335,15 +335,15 @@ test('Gestionnaire : ses revenus, 50 € à chaque départ, mois par mois (perç
   let p = env.api(manager, 'load').pay;
   const j = x => JSON.parse(JSON.stringify(x));
   assert.equal(p.fee, 50);
-  assert.deepEqual(j(p.months), {
-    '2026-10': { count: 1, paidCount: 0, amount: 50, paid: 0, toCome: 50 },
-    '2026-11': { count: 2, paidCount: 0, amount: 100, paid: 0, toCome: 100 },
-    '2026-12': { count: 1, paidCount: 0, amount: 50, paid: 0, toCome: 50 }
-  });
+  assert.deepEqual(j(p.months), [
+    { ym: '2026-10', count: 1, paidCount: 0, amount: 50, paid: 0, toCome: 50 },
+    { ym: '2026-11', count: 2, paidCount: 0, amount: 100, paid: 0, toCome: 100 },
+    { ym: '2026-12', count: 1, paidCount: 0, amount: 50, paid: 0, toCome: 50 }
+  ]);
   assert.ok(!JSON.stringify(p).includes('Jean'), 'que des montants, pas de liste');
   // Montant changé par le propriétaire ; vide = plus rien d'affiché ; montant absurde refusé.
   let d = env.api(owner, 'saveSettings', Object.assign({}, data.settings, { managerFee: '45,5' }));
-  assert.equal(env.api(manager, 'load').pay.months['2026-11'].amount, 91);
+  assert.equal(env.api(manager, 'load').pay.months.find(m => m.ym === '2026-11').amount, 91);
   d = env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: '' }));
   assert.equal(d.settings.managerFee, 0);
   assert.equal(env.api(manager, 'load').pay, null);
@@ -355,9 +355,9 @@ test('Gestionnaire : ses revenus, 50 € à chaque départ, mois par mois (perç
     { checkin: '2026-11-27', checkout: '2026-11-30', status: 'confirmed' }, { checkin: '2026-11-01', checkout: '2026-11-03', status: 'cancelled' },
     { checkin: '2026-08-01', checkout: '2026-08-03', status: 'confirmed' }];
   const s = { managerFee: 50, checkoutTime: '10:00' };
-  assert.deepEqual(j(ctx.managerPay_(rows, s, '2026-11-26', '09:30', '2026-10-27').months), { '2026-11': { count: 3, paidCount: 1, amount: 150, paid: 50, toCome: 100 } });
-  assert.deepEqual(j(ctx.managerPay_(rows, s, '2026-11-26', '10:30', '2026-10-27').months['2026-11']), { count: 3, paidCount: 2, amount: 150, paid: 100, toCome: 50 });
-  assert.deepEqual(j(ctx.managerPay_([], s, '2026-11-26', '10:30', '2026-10-27').months), {});
+  assert.deepEqual(j(ctx.managerPay_(rows, s, '2026-11-26', '09:30', '2026-10-27').months), [{ ym: '2026-11', count: 3, paidCount: 1, amount: 150, paid: 50, toCome: 100 }]);
+  assert.deepEqual(j(ctx.managerPay_(rows, s, '2026-11-26', '10:30', '2026-10-27').months[0]), { ym: '2026-11', count: 3, paidCount: 2, amount: 150, paid: 100, toCome: 50 });
+  assert.deepEqual(j(ctx.managerPay_([], s, '2026-11-26', '10:30', '2026-10-27').months), []);
 });
 
 test('Réglages : durée minimale et message WhatsApp contrôlés', () => {

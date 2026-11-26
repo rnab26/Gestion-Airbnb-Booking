@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.6.2'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.6.3'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -2063,13 +2063,12 @@ function managerPay_(rows, s, today, nowTime, from) {
     m.count++;
     if (d < today || (d === today && String(nowTime || '') >= String(s.checkoutTime || '10:00'))) m.paidCount++;
   });
-  Object.keys(months).forEach(function (k) {
+  // Liste triée (et non objet indexé par mois) : c'est ce format qui passe sans perte jusqu'à la page.
+  var list = Object.keys(months).sort().map(function (k) {
     var m = months[k];
-    m.amount = round2_(m.count * fee);
-    m.paid = round2_(m.paidCount * fee);
-    m.toCome = round2_(m.amount - m.paid);
+    return { ym: k, count: m.count, paidCount: m.paidCount, amount: round2_(m.count * fee), paid: round2_(m.paidCount * fee), toCome: round2_((m.count - m.paidCount) * fee) };
   });
-  return { fee: fee, months: months };
+  return { fee: fee, months: list };
 }
 
 /**
