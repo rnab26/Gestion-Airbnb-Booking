@@ -306,6 +306,13 @@ async function main() {
   await mp.click('#calNext');
   assert.match(await mp.textContent('#payCard'), /Tes revenus · Novembre\s*100\s€\s*2 départs × 50\s€\s*✅ Déjà perçu 0\s€\s*⏳ À venir 100\s€/, 'la case suit le mois du calendrier');
   assert.match(await mp.getAttribute('[data-bar-start="2026-11-04"]', 'style'), /var\(--booking\)/, 'couleur Booking');
+  // Démarcation des mois : séjour de Jean (parti le 29 oct.) atténué, noms des mois sous la 1re case et sous le 1er déc.
+  assert.ok(await mp.$eval('[data-bar-start="2026-10-25"]', e => e.classList.contains('away')), 'séjour du mois précédent atténué');
+  assert.ok(!(await mp.$eval('[data-bar-start="2026-11-04"]', e => e.classList.contains('away'))), 'séjour du mois normal');
+  assert.equal(await mp.textContent('[data-day="2026-10-26"] .mo'), 'oct.');
+  assert.equal(await mp.textContent('[data-day="2026-12-01"] .mo'), 'déc.');
+  assert.equal(await mp.textContent('[data-day="2026-11-01"] .mo'), 'nov.');
+  assert.equal(await mp.$('[data-day="2026-11-02"] .mo'), null);
   assert.ok(await mp.$eval('[data-day="2026-11-25"]', e => e.classList.contains('blocked')), 'fermeture Airbnb en gris foncé');
   await mp.click('[data-bar-start="2026-11-04"]');
   await mp.waitForSelector('.modal .sheet');
