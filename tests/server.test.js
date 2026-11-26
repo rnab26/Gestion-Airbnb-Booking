@@ -329,6 +329,38 @@ test('Gestionnaire : couleurs, jours fermés, heure, message WhatsApp ; aperçu 
   assert.ok(Array.isArray(o.closures) && o.nowTime);
 });
 
+test('Gestionnaire : ses revenus (forfait par location) par mois, réglables, jamais ceux du propriétaire', () => {
+  const { env, owner, manager, data } = setup();
+  // On est le 27 oct. 2026 : Jean part le 29 oct. ; Booking 4→7 nov. et 15→18 nov. ; Airbnb 1→5 déc. Annulations exclues.
+  let p = env.api(manager, 'load').pay;
+  const j = x => JSON.parse(JSON.stringify(x));
+  assert.equal(p.fee, 50);
+  assert.equal(p.basis, 'checkout');
+  assert.deepEqual(j(p.months).map(m => [m.ym, m.count, m.done, m.amount]), [['2026-10', 1, 0, 50], ['2026-11', 2, 0, 100], ['2026-12', 1, 0, 50]]);
+  assert.deepEqual(j(p.months[0].items), [{ date: '2026-10-29', guest: 'Jean' }]);
+  assert.equal(p.toCome, 200);
+  // Compté à l'arrivée, 45,5 € : Jean est arrivé le 25 → location faite.
+  env.api(owner, 'saveSettings', Object.assign({}, data.settings, { managerFee: '45,5', managerFeeBasis: 'checkin' }));
+  p = env.api(manager, 'load').pay;
+  assert.deepEqual(j(p.months[0]), { ym: '2026-10', count: 1, done: 1, items: [{ date: '2026-10-25', guest: 'Jean' }], amount: 45.5 });
+  assert.equal(p.toCome, 136.5);
+  // Prénom masqué si le propriétaire le cache ; vide = plus rien d'affiché ; montant absurde refusé.
+  let d = env.api(owner, 'saveSettings', Object.assign({}, data.settings, { managerShowGuestName: false }));
+  assert.equal(env.api(manager, 'load').pay.months[0].items[0].guest, '');
+  d = env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: '' }));
+  assert.equal(d.settings.managerFee, 0);
+  assert.equal(env.api(manager, 'load').pay, null);
+  assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: 'abc' })), /un montant par location/);
+  assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerFee: '5000' })), /un montant par location/);
+  // Le mois en cours est toujours là, même vide ; le mois dernier seulement s'il a des locations.
+  const { ctx } = createEnv();
+  const empty = j(ctx.managerPay_([], { managerFee: 50 }, '2026-11-26'));
+  assert.deepEqual(empty.months, [{ ym: '2026-11', count: 0, done: 0, items: [], amount: 0 }]);
+  const withPrev = j(ctx.managerPay_([{ checkin: '2026-10-20', checkout: '2026-10-22', status: 'confirmed' }, { checkin: '2026-09-01', checkout: '2026-09-03', status: 'confirmed' }], { managerFee: 50 }, '2026-11-26'));
+  assert.deepEqual(withPrev.months.map(m => m.ym), ['2026-10', '2026-11']);
+  assert.equal(withPrev.toCome, 0);
+});
+
 test('Réglages : durée minimale et message WhatsApp contrôlés', () => {
   const { env, owner, data } = setup({ withIcal: false });
   const s = Object.assign({}, data.settings);

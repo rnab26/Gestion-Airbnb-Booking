@@ -268,7 +268,18 @@ async function main() {
   const mp = await open(manager, 'manager');
   await mp.waitForSelector('.cal');
   const mtext = await mp.innerText('#app');
-  for (const bad of ['€', 'Revenus', 'HMTEST', 'Dupont', 'Réglages', 'facture']) assert.ok(!mtext.includes(bad), 'gestionnaire voit : ' + bad);
+  // Les seuls montants visibles sont les siens (forfait par location), jamais ceux du propriétaire.
+  for (const bad of ['412', 'Revenus nets', 'HMTEST', 'Dupont', 'Réglages', 'facture', 'commission']) assert.ok(!mtext.includes(bad), 'gestionnaire voit : ' + bad);
+  const outsidePay = mtext.replace(await mp.innerText('#payCard'), '');
+  assert.ok(!outsidePay.includes('€'), 'aucun montant hors de « Tes revenus »');
+  // « Tes revenus » en haut, au-dessus du calendrier : octobre = 4 départs (Paul, Claire, Marco, Jean) × 50 €.
+  assert.ok(mtext.indexOf('Tes revenus') < mtext.indexOf('Aujourd'), 'au-dessus du calendrier');
+  assert.match(await mp.textContent('#payCard'), /50\s€ par location/);
+  assert.match(await mp.textContent('[data-pay="2026-10"] summary'), /Octobre.*ce mois-ci.*4 locations · 3 faites, 1 à venir.*200\s€/s);
+  assert.match(await mp.textContent('[data-pay="2026-11"] summary'), /Novembre.*locations.*€/s);
+  await mp.click('[data-pay="2026-10"] summary');
+  assert.match(await mp.textContent('[data-pay="2026-10"]'), /Jean.*ménage Jeu\. 29 oct\./s);
+  await mp.click('[data-pay="2026-10"] summary');
   assert.match(mtext, /Changer les draps/);
   assert.match(mtext, /Arrivée tardive vers 22h/);
   assert.match(mtext, /Ménage/);

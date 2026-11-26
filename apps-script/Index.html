@@ -963,6 +963,9 @@ function viewSettings() {
     '<p class="help">Quand elle touche « WhatsApp » sur un voyageur, ce message est déjà écrit : elle n\'a plus qu\'à l\'envoyer. Repères remplacés tout seuls : {prénom} {gestionnaire} {arrivée} {départ} {heure} {guide}.</p>' +
     '<label class="f"><span>Guide d\'arrivée (mis à la place de {guide})</span><textarea name="arrivalGuide" rows="8" placeholder="Colle ici le texte de ton message automatique : adresse, accès, boîte à clés, Wi-Fi…">' + esc(s.arrivalGuide) + '</textarea></label>' +
     '<p class="small" style="margin:2px 0 4px">Aperçu du message :</p><div class="sumbox" id="waPreview" style="white-space:pre-wrap;margin-top:0"></div>' +
+    '<div class="row" style="flex-wrap:nowrap;align-items:flex-end"><label class="f" style="flex:1"><span>Ses revenus par location (€)</span><input type="text" inputmode="decimal" name="managerFee" value="' + esc(s.managerFee ? String(s.managerFee).replace('.', ',') : '') + '" placeholder="Vide = pas affiché"></label>' +
+    '<label class="f" style="flex:1"><span>Comptés au mois</span><select name="managerFeeBasis"><option value="checkout"' + (s.managerFeeBasis !== 'checkin' ? ' selected' : '') + '>du départ (ménage)</option><option value="checkin"' + (s.managerFeeBasis === 'checkin' ? ' selected' : '') + '>de l\'arrivée</option></select></label></div>' +
+    '<p class="help">Affichés en haut de sa page : ce qu\'elle touche ce mois-ci et les mois à venir, location par location.</p>' +
     chk('managerCanAddNotes', 'Elle peut ajouter des notes', 'Ex. « plus de lessive ». Elle ne peut modifier que les siennes.') +
     '<label class="f"><span>Jours passés visibles</span><input type="number" min="0" max="365" name="managerPastDays" value="' + esc(s.managerPastDays) + '"></label>' +
     '<div class="linkbox" id="mgrLink">' + esc(d.managerUrl) + '</div><div class="row">' +
@@ -1085,7 +1088,7 @@ function bindSettings(root) {
     var fd = new FormData(f);
     var p = {};
     ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingHotelId', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl',
-      'minNights', 'managerWaMessage', 'arrivalGuide'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
+      'minNights', 'managerWaMessage', 'arrivalGuide', 'managerFee', 'managerFeeBasis'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
     p.syncEveryHours = +p.syncEveryHours;
     ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerShowPhone', 'managerCanAddNotes', 'autoUpdateEnabled'].forEach(function (k) { p[k] = !!fd.get(k); });
     var before = S.data.settings;
@@ -1117,6 +1120,30 @@ function mgrBody(r, full) {
       (next ? ' — <span style="color:var(--err)">nouvelle arrivée le même jour à ' + esc(s.checkinTime) + '</span>' : '') + '</div>' : '') +
     (r.sharedNote ? '<div class="small" style="margin-top:6px">💬 ' + esc(r.sharedNote) + '</div>' : '');
 }
+// Ses revenus (forfait par location, réglé par le propriétaire) : ce mois-ci et les mois à venir.
+// Toucher un mois = la liste des locations comptées.
+function fmtEur(n) {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 }).format(n);
+}
+function payHtml(p) {
+  if (!p || !p.months) return '';
+  var cur = S.data.today.slice(0, 7), y = S.data.today.slice(0, 4);
+  var rows = p.months.map(function (m) {
+    var mo = +m.ym.slice(5) - 1;
+    var label = MONTHS[mo].charAt(0).toUpperCase() + MONTHS[mo].slice(1) + (m.ym.slice(0, 4) !== y ? ' ' + m.ym.slice(0, 4) : '');
+    var detail = m.count + ' location' + (m.count > 1 ? 's' : '') +
+      (m.ym === cur && m.count ? ' · ' + m.done + ' faite' + (m.done > 1 ? 's' : '') + ', ' + (m.count - m.done) + ' à venir' : m.ym < cur ? ' · mois dernier' : '');
+    var items = m.items.map(function (it) {
+      return '<div class="pay" style="cursor:default"><span>' + esc(it.guest || 'Voyageur') + '</span><span class="muted">' + (p.basis === 'checkin' ? 'arrivée ' : 'ménage ') + fmtDate(it.date) + '</span></div>';
+    }).join('');
+    return '<details class="mdet" data-pay="' + m.ym + '"><summary><div class="mrow" style="grid-template-columns:1fr auto"><span><b' + (m.ym === cur ? '' : ' style="font-weight:600"') + '>' + label + '</b>' +
+      (m.ym === cur ? ' <span class="badge direct">ce mois-ci</span>' : '') + '<span class="small muted" style="display:block">' + detail + '</span></span><b>' + fmtEur(m.amount) + '</b></div></summary>' +
+      (items || '<p class="small muted" style="margin:0 0 8px">Aucune location ce mois-ci pour l\'instant.</p>') + '</details>';
+  }).join('');
+  return '<div class="card" id="payCard"><div class="spread"><h3 style="margin:0">💶 Tes revenus</h3><span class="small muted">' + fmtEur(p.fee) + ' par location</span></div>' +
+    '<div style="margin-top:6px">' + rows + '</div>' +
+    '<div class="spread small" style="margin-top:8px"><span class="muted">Encore à venir (réservations actuelles)</span><b>' + fmtEur(p.toCome) + '</b></div></div>';
+}
 function renderManager(app) {
   var d = S.data, s = d.settings, today = d.today;
   var cur = currentRes();
@@ -1126,6 +1153,7 @@ function renderManager(app) {
     (S.preview ? '<button class="btn small" id="exitPreview">← Mon espace</button>' : '<span class="chip">Planning</span>') +
     '<button class="icon-btn" id="reload" title="Actualiser" aria-label="Actualiser">↻</button></header><div class="wrap">';
   if (S.preview) html += '<div class="banner info"><b>Aperçu</b> : voici exactement ce que voit ' + esc(s.managerLabel || 'la gestionnaire') + ' (lecture seule). « ← Mon espace » pour revenir.</div>';
+  html += payHtml(d.pay);
   html += '<div class="card">' + calendarHtml() + '</div>';
   // Locataire actuel : qui est dans l'appartement en ce moment.
   if (cur) {
