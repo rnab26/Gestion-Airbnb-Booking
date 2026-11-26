@@ -50,8 +50,11 @@ nav.tabs button.on{color:var(--accent);font-weight:600}
 .cal .dows,.cal .wk-days{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 .cal .dow{font-size:11px;text-align:center;color:var(--muted);padding:2px 0}
 .cal .wk{position:relative}
-.cal .day{min-height:68px;border-radius:12px;background:var(--card);border:1px solid var(--line);padding:6px;font-size:11px;cursor:pointer;position:relative;text-align:center;display:flex;flex-direction:column;align-items:center}
-.cal .day.out{opacity:.35}
+.cal .day{min-height:76px;border-radius:12px;background:var(--card);border:1px solid var(--line);padding:6px;font-size:11px;cursor:pointer;position:relative;text-align:center;display:flex;flex-direction:column;align-items:center}
+/* jours d'un autre mois : sans fond, bord en pointillés, très effacés ; nom du mois sous le 1er */
+.cal .day.out{background:transparent;border:1px dashed var(--line);opacity:.4}
+.cal .day .mo{position:absolute;left:0;right:0;bottom:4px;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);line-height:1}
+.cal .bar.away{opacity:.4}
 .cal .day.past .n{color:var(--muted)}
 .cal .day .n{font-weight:600;font-size:14px;line-height:24px;width:26px;height:26px;border-radius:50%}
 .cal .day.today .n{background:var(--airbnb);color:#fff}
@@ -535,6 +538,8 @@ function calendarHtml() {
       html += '<button class="day' + (monthOf(d) !== ym ? ' out' : '') + (d === S.data.today ? ' today' : '') + (d < S.data.today ? ' past' : '') +
         (cl === 'manual' ? ' blocked' : cl === 'unbookable' ? ' unbook' : '') + '" data-day="' + d + '"' +
         (cl ? ' title="' + (cl === 'manual' ? 'Fermé' : 'Non réservable (durée minimale)') + '"' : '') + '><span class="n">' + (+d.slice(8)) + '</span>' +
+        // Nom du mois sous le 1er jour, et sous la première case quand elle appartient au mois précédent.
+        (d.slice(8) === '01' || (w === 0 && i === 0 && monthOf(d) !== ym) ? '<span class="mo">' + MONTHS_S[+d.slice(5, 7) - 1] + '</span>' : '') +
         (nn ? '<span class="dot" title="' + nn + ' note(s)"></span>' : '') + '</button>';
     }
     html += '</div>';
@@ -551,7 +556,9 @@ function calendarHtml() {
       var a = startsHere ? (utc(r.checkin) - utc(ws)) / 864e5 + 0.5 : 0;
       var b = end < we ? (utc(end) - utc(ws)) / 864e5 + (r.checkout ? 0.5 : 0.95) : 7;
       var gap = 'calc((100% - 36px) / 7 + 6px)';
-      html += '<button class="bar' + (startsHere ? ' s' : '') + (endsHere ? ' e' : '') + (lane ? ' l1' : '') + (r.checkout ? '' : ' unk') + (isCurrent(r) ? ' now' : '') + '" data-res="' + esc(r.id) +
+      // Séjour entièrement dans un autre mois (ex. départ le 29 du mois précédent) : atténué.
+      var away = end <= first || r.checkin >= shiftMonth(ym, 1) + '-01';
+      html += '<button class="bar' + (startsHere ? ' s' : '') + (endsHere ? ' e' : '') + (lane ? ' l1' : '') + (r.checkout ? '' : ' unk') + (isCurrent(r) ? ' now' : '') + (away ? ' away' : '') + '" data-res="' + esc(r.id) +
         '" data-bar-start="' + r.checkin + '" style="background:' + srcColor(r.source) + ';left:calc(' + a + ' * ' + gap + ');width:calc(' + (b - a) + ' * ' + gap + ' - 6px)">' +
         (b - a >= 1.4 ? esc(guestLabel(r)) + (r.checkout ? '' : ' · départ ?') : '') + '</button>'; // trop court : le nom s'affiche sur la ligne suivante
     });
