@@ -1127,7 +1127,7 @@ function fmtEur(n) {
 function payHtml(p) {
   if (!p || !p.months) return '';
   var ym = S.month || S.data.today.slice(0, 7);
-  var m = p.months[ym] || { count: 0, amount: 0, paid: 0, toCome: 0 };
+  var m = p.months.filter(function (x) { return x.ym === ym; })[0] || { count: 0, amount: 0, paid: 0, toCome: 0 };
   var mo = +ym.slice(5) - 1;
   var label = MONTHS[mo].charAt(0).toUpperCase() + MONTHS[mo].slice(1) + (ym.slice(0, 4) !== S.data.today.slice(0, 4) ? ' ' + ym.slice(0, 4) : '');
   return '<div class="card" id="payCard"><div class="spread"><h3 style="margin:0">💶 Tes revenus · ' + label + '</h3><b style="font-size:22px">' + fmtEur(m.amount) + '</b></div>' +
