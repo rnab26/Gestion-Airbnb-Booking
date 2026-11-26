@@ -275,6 +275,74 @@ test('Gestionnaire : aucun montant, aucun code, aucune note privée (filtré ser
   assert.ok(!m.reservations.some(x => x.checkin === '2026-11-21'), 'annulée absente');
 });
 
+test('Calendrier : jours non réservables (trop courts) et fermés, classés sur le serveur', () => {
+  const { ctx } = createEnv();
+  const R = (checkin, checkout, o) => Object.assign({ checkin, checkout, status: 'confirmed', hidden: '', origin: 'email' }, o || {});
+  const rows = [
+    R('2026-11-01', '2026-11-05'), R('2026-11-06', '2026-11-10'),                  // trou d'1 nuit (le 5)
+    R('2026-11-10', '2026-11-11', { status: 'blocked', origin: 'ical' }),          // préparation collée au séjour
+    R('2026-11-20', '2026-11-22'),
+    R('2026-11-25', '2026-11-28', { status: 'blocked', origin: 'ical' }),          // fermé (pas collé à un séjour)
+    R('2026-11-28', '2026-11-29', { status: 'blocked', origin: 'manual' }),        // bloqué dans l'outil
+    R('2026-11-12', '2026-11-14', { status: 'cancelled' }), R('2026-11-15', '2026-11-16', { hidden: '1' })
+  ];
+  const j = x => JSON.parse(JSON.stringify(x));
+  assert.deepEqual(j(ctx.closuresFor_(rows, 2)), [
+    { start: '2026-11-05', end: '2026-11-06', kind: 'unbookable' },
+    { start: '2026-11-10', end: '2026-11-11', kind: 'unbookable' },
+    { start: '2026-11-25', end: '2026-11-29', kind: 'manual' }
+  ]);
+  // Durée minimale d'une nuit : le trou du 5 redevient réservable, la préparation compte comme fermée.
+  assert.deepEqual(j(ctx.closuresFor_(rows, 1)), [
+    { start: '2026-11-10', end: '2026-11-11', kind: 'manual' },
+    { start: '2026-11-25', end: '2026-11-29', kind: 'manual' }
+  ]);
+  // Trou de 2 nuits entre un séjour et une fermeture, minimum 3 : non réservable.
+  assert.deepEqual(j(ctx.closuresFor_([R('2026-12-01', '2026-12-03'), R('2026-12-05', '2026-12-20', { status: 'blocked', origin: 'ical' })], 3)), [
+    { start: '2026-12-03', end: '2026-12-05', kind: 'unbookable' },
+    { start: '2026-12-05', end: '2026-12-20', kind: 'manual' }
+  ]);
+  assert.deepEqual(j(ctx.closuresFor_([], 2)), []);
+});
+
+test('Gestionnaire : couleurs, jours fermés, heure, message WhatsApp ; aperçu propriétaire identique', () => {
+  const { env, owner, manager, data } = setup();
+  let m = env.api(manager, 'load');
+  assert.match(m.nowTime, /^\d{2}:\d{2}$/);
+  assert.equal(m.reservations.find(x => x.checkin === '2026-10-25').source, 'airbnb');
+  assert.ok(m.closures.some(c => c.start === '2026-12-20' && c.kind === 'manual'), 'fermeture Booking du 20 déc.');
+  assert.ok(m.closures.every(c => Object.keys(c).sort().join() === 'end,kind,start'), 'aucun détail sur la fermeture');
+  assert.equal(m.settings.managerWaMessage, '', 'pas de message sans le téléphone');
+  env.api(owner, 'saveSettings', Object.assign({}, data.settings, { managerShowPhone: true, managerLabel: 'Candy', arrivalGuide: 'Boîte à clés : code 1234', minNights: '3' }));
+  m = env.api(manager, 'load');
+  assert.match(m.settings.managerWaMessage, /\{gestionnaire\}/);
+  assert.equal(m.settings.arrivalGuide, 'Boîte à clés : code 1234');
+  assert.equal(m.settings.managerLabel, 'Candy');
+  // Aperçu dans l'application du propriétaire : exactement les données de la gestionnaire, rien de plus.
+  const p = env.api(owner, 'previewManager');
+  assert.deepEqual(Object.keys(p).sort(), Object.keys(m).sort());
+  assert.equal(JSON.stringify(p.reservations), JSON.stringify(m.reservations));
+  assert.ok(!JSON.stringify(p).includes('412.3'), 'aucun montant dans l’aperçu');
+  assert.throws(() => env.api(manager, 'previewManager'), /Action non autorisée/);
+  const o = env.api(owner, 'load');
+  assert.equal(o.settings.minNights, 3);
+  assert.ok(Array.isArray(o.closures) && o.nowTime);
+});
+
+test('Réglages : durée minimale et message WhatsApp contrôlés', () => {
+  const { env, owner, data } = setup({ withIcal: false });
+  const s = Object.assign({}, data.settings);
+  for (const bad of ['0', '31', '2,5', 'abc', '']) {
+    assert.throws(() => env.api(owner, 'saveSettings', Object.assign({}, s, { minNights: bad })), /Durée minimale de séjour/, bad);
+  }
+  let d = env.api(owner, 'saveSettings', Object.assign({}, s, { minNights: '4', managerWaMessage: '   ', arrivalGuide: ' Code 9 ' }));
+  assert.equal(d.settings.minNights, 4);
+  assert.match(d.settings.managerWaMessage, /^Bonjour \{prénom\}/, 'message vide → message par défaut');
+  assert.equal(d.settings.arrivalGuide, 'Code 9');
+  d = env.api(owner, 'saveSettings', Object.assign({}, d.settings, { managerWaMessage: 'Salut {prénom}' }));
+  assert.equal(d.settings.managerWaMessage, 'Salut {prénom}');
+});
+
 test('Gestionnaire : réglages de confidentialité appliqués', () => {
   const { env, owner, manager, data } = setup();
   env.api(owner, 'saveSettings', Object.assign({}, data.settings, { managerShowGuestName: false, managerShowGuestCount: false }));

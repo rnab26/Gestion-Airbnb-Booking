@@ -46,9 +46,9 @@ function unzip(buf) {
 }
 
 function formatDate(date, tz, fmt) {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     .formatToParts(date).reduce((o, p) => (o[p.type] = p.value, o), {});
-  return fmt.replace('yyyy', parts.year).replace('MM', parts.month).replace('dd', parts.day);
+  return fmt.replace('yyyy', parts.year).replace('MM', parts.month).replace('dd', parts.day).replace('HH', parts.hour).replace('mm', parts.minute);
 }
 
 function makeSheet(name) {

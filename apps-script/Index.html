@@ -6,7 +6,7 @@
 <style>
 :root{
   --bg:#f6f5f2;--card:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e4e2dc;--accent:#1f6f5c;--accent-ink:#fff;
-  --airbnb:#e0383e;--airbnb-soft:#ffc4c6;--booking:#2f6fe0;--booking-soft:#c4d6ff;--direct:#2f9d6a;--direct-soft:#c9ecd9;--blocked:#d2d2d6;--blocked-bg:#ececee;
+  --airbnb:#e0383e;--airbnb-soft:#ffc4c6;--booking:#2f6fe0;--booking-soft:#c4d6ff;--direct:#2f9d6a;--direct-soft:#c9ecd9;--blocked:#c6c6cc;--blocked-bg:#ececee;
   --warn:#b26a00;--warn-soft:#fff3dc;--err:#c0392b;--err-soft:#fde4e1;--ok:#2f9d6a;--radius:14px;
 }
 @media (prefers-color-scheme: dark){
@@ -55,8 +55,22 @@ nav.tabs button.on{color:var(--accent);font-weight:600}
 .cal .day.past .n{color:var(--muted)}
 .cal .day .n{font-weight:600;font-size:14px;line-height:24px;width:26px;height:26px;border-radius:50%}
 .cal .day.today .n{background:var(--airbnb);color:#fff}
-.cal .day.blocked{background:var(--blocked-bg);border-color:transparent}
+.cal .day.blocked{background:var(--blocked);border-color:transparent}
 .cal .day.blocked .n{text-decoration:line-through;color:var(--muted);font-weight:500}
+.cal .day.unbook{background:var(--blocked-bg);border-color:transparent}
+.cal .day.unbook .n{color:var(--muted);font-weight:500}
+/* séjour en cours : le bandeau scintille */
+.cal .bar.now{animation:glow 1.6s ease-in-out infinite}
+@keyframes glow{0%,100%{box-shadow:0 1px 3px rgba(0,0,0,.18);filter:brightness(1)}50%{box-shadow:0 0 0 3px #ffc83d,0 0 14px 3px rgba(255,200,61,.75);filter:brightness(1.2)}}
+.sw.now{background:var(--card);box-shadow:0 0 0 2px #ffc83d}
+.cur{border:2px solid var(--ok);cursor:pointer}
+.cur-h{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ok);margin-bottom:6px;display:flex;align-items:center}
+.cur-empty .cur-h{color:var(--muted)}
+.live{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--ok);margin-right:7px;animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{50%{opacity:.2}}
+@media (prefers-reduced-motion: reduce){.cal .bar.now{animation:none;box-shadow:0 0 0 3px #ffc83d}.live{animation:none}}
+.mcard{cursor:pointer}
+.mcard>div+div{margin-top:2px}
 .cal .day .dot{position:absolute;right:6px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--warn)}
 .cal .bar{position:absolute;top:34px;height:26px;border:0;padding:0 8px;color:#fff;font-size:12px;font-weight:600;line-height:26px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;z-index:1;box-shadow:0 1px 3px rgba(0,0,0,.18)}
 .cal .bar.s{border-top-left-radius:13px;border-bottom-left-radius:13px}
@@ -153,7 +167,8 @@ summary{cursor:pointer;color:var(--accent);font-size:14px}
 <script>
 (function () {
 'use strict';
-var S = { boot: BOOT, data: null, tab: 'planning', month: '', year: 0, resView: 'upcoming', resSource: '', resQuery: '', noteView: 'upcoming', busy: false, loadError: '' };
+var S = { boot: BOOT, data: null, tab: 'planning', month: '', year: 0, resView: 'upcoming', resSource: '', resQuery: '', noteView: 'upcoming', busy: false, loadError: '',
+  preview: false, ownerData: null, loadedAt: 0 }; // preview : le propriétaire regarde la page de la gestionnaire (lecture seule)
 var SRC = { airbnb: 'Airbnb', booking: 'Booking', direct: 'Direct' };
 var MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 var MONTHS_S = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
@@ -171,8 +186,11 @@ function fmtDate(s, withYear) {
   var p = s.split('-');
   return DOW[dow(s)] + ' ' + (+p[2]) + ' ' + MONTHS_S[+p[1] - 1] + (withYear ? ' ' + p[0] : '');
 }
+var DOW_L = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+function fmtLong(s) { if (!s) return ''; var p = s.split('-'); return DOW_L[dow(s)] + ' ' + (+p[2]) + ' ' + MONTHS[+p[1] - 1]; }
 // Lien WhatsApp d'un numéro complet (« +33 6… », « 0033… », « 06… » = France) ; vide pour « …9315 ».
-function waLink(phone) {
+// text : message déjà écrit dans la conversation (la personne n'a plus qu'à appuyer sur Envoyer).
+function waLink(phone, text) {
   var s = String(phone || '').trim();
   if (!s || /…|\.\.\./.test(s)) return '';
   var d = s.replace(/[^\d+]/g, '');
@@ -180,11 +198,22 @@ function waLink(phone) {
   else if (/^\+/.test(d)) d = d.slice(1);
   else if (/^0\d{9}$/.test(d)) d = '33' + d.slice(1);
   d = d.replace(/\D/g, '');
-  return d.length >= 8 ? 'https://wa.me/' + d : '';
+  return d.length >= 8 ? 'https://wa.me/' + d + (text ? '?text=' + encodeURIComponent(text) : '') : '';
 }
-function waChip(phone) {
-  var u = waLink(phone);
+function waChip(phone, text) {
+  var u = waLink(phone, text);
   return u ? '<span class="wa" role="link" tabindex="0" data-wa="' + esc(u) + '">WhatsApp</span>' : '';
+}
+// Message WhatsApp préparé pour la gestionnaire (texte réglable par le propriétaire dans Réglages).
+function waMessage(r, s) {
+  var tpl = String(s.managerWaMessage || '');
+  if (!tpl.trim()) return '';
+  var first = String(r.guest || '').trim().split(/\s+/)[0] || '';
+  var map = { 'prénom': first, 'prenom': first, 'gestionnaire': s.managerLabel || '', 'arrivée': fmtLong(r.checkin), 'arrivee': fmtLong(r.checkin),
+    'départ': fmtLong(r.checkout), 'depart': fmtLong(r.checkout), 'heure': s.checkinTime || '', 'guide': String(s.arrivalGuide || '').trim() };
+  var t = tpl.replace(/\{([^{}]+)\}/g, function (m, k) { k = k.trim().toLowerCase(); return Object.prototype.hasOwnProperty.call(map, k) ? map[k] : m; });
+  // Repère vide (pas de prénom, pas de guide) : pas de double espace ni de ligne vide en trop.
+  return t.split('\n').map(function (l) { return l.replace(/[ \t]{2,}/g, ' ').replace(/ +,/g, ',').replace(/\s+$/, ''); }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 // Brut / commission / net d'un séjour (Booking : prix client ; Airbnb : versement avant frais de service hôte).
 function moneyRows(r) {
@@ -216,8 +245,8 @@ function ago(iso) {
 function monthOf(s) { return s.slice(0, 7); }
 function monthTitle(ym) { var p = ym.split('-'); return MONTHS[+p[1] - 1] + ' ' + p[0]; }
 function shiftMonth(ym, n) { var p = ym.split('-'); var d = new Date(Date.UTC(+p[0], +p[1] - 1 + n, 1)); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1); }
-// La gestionnaire voit une seule couleur « occupé » : la plateforme ne la concerne pas.
-function srcKey(src) { return !isOwner() ? 'booking' : (SRC[src] ? src : 'direct'); }
+// Couleur de la plateforme (aussi pour la gestionnaire : demandé par le propriétaire le 26 nov. 2026).
+function srcKey(src) { return SRC[src] ? src : 'direct'; }
 function srcColor(src) { return 'var(--' + srcKey(src) + ')'; }
 function srcSoft(src) { return 'var(--' + srcKey(src) + '-soft)'; }
 function cleanErr(e) {
@@ -236,18 +265,30 @@ function toast(msg, type) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function () { el.innerHTML = ''; }, type === 'error' ? 7000 : 3200);
 }
-function isOwner() { return S.boot.mode === 'owner'; }
+function isOwner() { return S.boot.mode === 'owner' && !S.preview; }
 function nightsOf(r) { return r.nights || 0; }
 function occupies(r, d) {
   if (!r.checkin) return false;
   if (!r.checkout) return r.checkin === d;
   return r.checkin <= d && d < r.checkout;
 }
+// Nuit fermée (calculé sur le serveur) : 'manual' (fermé, gris foncé) ou 'unbookable' (trop court, gris clair).
+function closureOn(d) {
+  var c = (S.data.closures || []).filter(function (x) { return x.start <= d && d < x.end; })[0];
+  return c ? c.kind : '';
+}
+// Voyageur dans l'appartement en ce moment : arrivé (heure d'arrivée passée) et pas encore parti (heure de départ).
+function isCurrent(r) {
+  var d = S.data, s = d.settings, t = d.today, h = d.nowTime || '12:00';
+  if (!r || !r.checkin || r.status === 'cancelled' || r.status === 'blocked' || r.hidden === '1') return false;
+  var out = r.checkout || addDays(r.checkin, 1);
+  var started = r.checkin < t || (r.checkin === t && h >= (s.checkinTime || '15:00'));
+  var notGone = t < out || (t === out && h < (s.checkoutTime || '10:00'));
+  return started && notGone;
+}
+function currentRes() { return activeRes().filter(isCurrent)[0] || null; }
 function activeRes() {
   return S.data.reservations.filter(function (r) { return r.status !== 'cancelled' && r.status !== 'blocked' && r.hidden !== '1'; });
-}
-function blockedRes() {
-  return S.data.reservations.filter(function (r) { return r.status === 'blocked' && r.hidden !== '1'; });
 }
 function notesOn(d) {
   return S.data.notes.filter(function (n) { return n.date <= d && d <= (n.endDate || n.date); });
@@ -281,11 +322,13 @@ function confirmDialog(text, okLabel, danger) {
 // ---------- actions serveur ----------
 function act(action, payload, okMsg, btn) {
   if (S.busy) return Promise.resolve(false);
+  if (S.preview) { toast('Aperçu en lecture seule : reviens à ton espace pour modifier.', 'error'); return Promise.resolve(false); }
   S.busy = true;
   var label;
   if (btn) { label = btn.textContent; btn.disabled = true; btn.textContent = '…'; }
   return call(action, payload).then(function (data) {
     S.data = data;
+    S.loadedAt = Date.now();
     S.busy = false;
     closeModal();
     render();
@@ -304,6 +347,7 @@ function load() {
   render();
   call('load').then(function (data) {
     S.data = data;
+    S.loadedAt = Date.now();
     if (!S.month) S.month = monthOf(data.today);
     if (!S.year) S.year = +data.today.slice(0, 4);
     render();
@@ -331,9 +375,24 @@ function render() {
     return;
   }
   if (!S.data) { app.innerHTML = '<div class="loading"><div class="spin"></div>Chargement…</div>'; return; }
-  if (mode === 'manager') return renderManager(app);
+  if (mode === 'manager' || S.preview) return renderManager(app);
   renderOwner(app);
 }
+// Retour sur l'application après un moment (téléphone en veille, autre appli) : données rafraîchies
+// sans rien demander, pour que « locataire actuel » et le séjour qui scintille restent justes.
+// Jamais pendant une saisie (fenêtre ouverte, Réglages) pour ne rien effacer.
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState !== 'visible' || !S.data || S.busy || $('#modal').innerHTML) return;
+  if ((S.boot.mode !== 'owner' && S.boot.mode !== 'manager') || (isOwner() && S.tab === 'reglages')) return;
+  if (Date.now() - S.loadedAt < 5 * 60000) return;
+  var wasPreview = S.preview;
+  call(wasPreview ? 'previewManager' : 'load').then(function (data) {
+    if (S.busy || $('#modal').innerHTML || S.preview !== wasPreview) return;
+    S.data = data;
+    S.loadedAt = Date.now();
+    render();
+  }, function () { /* hors connexion : on garde l'affichage actuel */ });
+});
 
 function renderInstall(app) {
   app.innerHTML = '<div class="wrap"><div class="card" style="margin-top:30px"><h3>Installation</h3>' +
@@ -460,7 +519,6 @@ function calendarHtml() {
   var startOffset = (dow(first) + 6) % 7; // semaine commençant lundi
   var start = addDays(first, -startOffset);
   var res = activeRes().filter(function (r) { return r.checkin; }).sort(function (a, b) { return a.checkin < b.checkin ? -1 : 1; });
-  var blk = isOwner() ? blockedRes() : [];
   var html = '<div class="cal-head"><button class="icon-btn" id="calPrev" aria-label="Mois précédent">‹</button><div class="title">' + monthTitle(ym) +
     '</div><button class="icon-btn" id="calNext" aria-label="Mois suivant">›</button></div>' +
     '<div class="row" style="justify-content:center;margin-bottom:6px"><button class="btn small" id="calToday">Aujourd\'hui</button></div><div class="cal"><div class="dows">' +
@@ -472,10 +530,11 @@ function calendarHtml() {
     for (var i = 0; i < 7; i++) {
       var d = addDays(ws, i);
       var busy = res.some(function (r) { return occupies(r, d); });
-      var closed = !busy && blk.some(function (r) { return occupies(r, d); });
+      var cl = busy ? '' : closureOn(d);
       var nn = notesOn(d).length;
       html += '<button class="day' + (monthOf(d) !== ym ? ' out' : '') + (d === S.data.today ? ' today' : '') + (d < S.data.today ? ' past' : '') +
-        (closed ? ' blocked' : '') + '" data-day="' + d + '"' + (closed ? ' title="Bloqué"' : '') + '><span class="n">' + (+d.slice(8)) + '</span>' +
+        (cl === 'manual' ? ' blocked' : cl === 'unbookable' ? ' unbook' : '') + '" data-day="' + d + '"' +
+        (cl ? ' title="' + (cl === 'manual' ? 'Fermé' : 'Non réservable (durée minimale)') + '"' : '') + '><span class="n">' + (+d.slice(8)) + '</span>' +
         (nn ? '<span class="dot" title="' + nn + ' note(s)"></span>' : '') + '</button>';
     }
     html += '</div>';
@@ -492,14 +551,17 @@ function calendarHtml() {
       var a = startsHere ? (utc(r.checkin) - utc(ws)) / 864e5 + 0.5 : 0;
       var b = end < we ? (utc(end) - utc(ws)) / 864e5 + (r.checkout ? 0.5 : 0.95) : 7;
       var gap = 'calc((100% - 36px) / 7 + 6px)';
-      html += '<button class="bar' + (startsHere ? ' s' : '') + (endsHere ? ' e' : '') + (lane ? ' l1' : '') + (r.checkout ? '' : ' unk') + '" data-res="' + esc(r.id) +
+      html += '<button class="bar' + (startsHere ? ' s' : '') + (endsHere ? ' e' : '') + (lane ? ' l1' : '') + (r.checkout ? '' : ' unk') + (isCurrent(r) ? ' now' : '') + '" data-res="' + esc(r.id) +
         '" data-bar-start="' + r.checkin + '" style="background:' + srcColor(r.source) + ';left:calc(' + a + ' * ' + gap + ');width:calc(' + (b - a) + ' * ' + gap + ' - 6px)">' +
         (b - a >= 1.4 ? esc(guestLabel(r)) + (r.checkout ? '' : ' · départ ?') : '') + '</button>'; // trop court : le nom s'affiche sur la ligne suivante
     });
     html += '</div>';
   }
-  html += '</div><div class="legend">' + (isOwner() ? '<span><i class="sw" style="background:var(--airbnb)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking)"></i>Booking</span><span><i class="sw" style="background:var(--direct)"></i>Direct</span><span><i class="sw" style="background:var(--blocked-bg);border:1px solid var(--line)"></i>Fermé (Airbnb/Booking)</span><span><i class="sw" style="border:1px solid var(--line)"></i>Libre</span>'
-    : '<span><i class="sw" style="background:var(--booking)"></i>Occupé</span>') +
+  var direct = isOwner() || res.some(function (r) { return srcKey(r.source) === 'direct'; });
+  html += '</div><div class="legend"><span><i class="sw" style="background:var(--airbnb)"></i>Airbnb</span><span><i class="sw" style="background:var(--booking)"></i>Booking</span>' +
+    (direct ? '<span><i class="sw" style="background:var(--direct)"></i>Direct</span>' : '') +
+    '<span><i class="sw now"></i>En cours</span><span><i class="sw" style="border:1px solid var(--line)"></i>Libre</span>' +
+    '<span><i class="sw" style="background:var(--blocked)"></i>Fermé</span><span><i class="sw" style="background:var(--blocked-bg);border:1px solid var(--line)"></i>Non réservable</span>' +
     '<span><i class="sw" style="background:var(--warn);border-radius:50%"></i>Note</span></div>';
   return html;
 }
@@ -545,9 +607,14 @@ function showDay(d) {
     return r.hidden !== '1' && r.status !== 'cancelled' && (r.status !== 'blocked' || isOwner()) && (occupies(r, d) || r.checkout === d);
   });
   var notes = notesOn(d);
-  var canNote = isOwner() || S.data.settings.managerCanAddNotes;
+  var canNote = !S.preview && (isOwner() || S.data.settings.managerCanAddNotes);
+  var cl = closureOn(d);
   var html = '<div class="spread"><h3>' + fmtDate(d, true) + '</h3><button class="btn ghost small" data-close>✕</button></div>';
-  if (!res.length && !notes.length) html += '<p class="muted">Rien ce jour-là : logement libre.</p>';
+  if (cl === 'unbookable' && !res.some(function (r) { return r.status !== 'blocked' && occupies(r, d); })) {
+    html += '<p class="muted">Non réservable : trou trop court entre deux séjours (durée minimale' + (isOwner() ? ' : ' + esc(S.data.settings.minNights) + ' nuits, réglable dans Réglages' : '') + ').</p>';
+  } else if (cl === 'manual' && !isOwner()) {
+    html += '<p class="muted">Fermé à la réservation ce jour-là.</p>';
+  } else if (!res.length && !notes.length) html += '<p class="muted">Rien ce jour-là : logement libre.</p>';
   res.forEach(function (r) {
     var what = r.status === 'blocked' ? 'Fermé' : r.checkin === d ? 'Arrivée' : r.checkout === d ? 'Départ' : 'Séjour en cours';
     html += '<div class="small muted" style="margin-top:8px">' + what + '</div>' + resCard(r);
@@ -826,7 +893,7 @@ function bindNotes(root) {
 function editNote(n) {
   var isNew = !n.id;
   var mine = isOwner() ? true : n.author === 'manager';
-  var canEdit = isNew || (isOwner() ? true : (mine && S.data.settings.managerCanAddNotes));
+  var canEdit = !S.preview && (isNew || (isOwner() ? true : (mine && S.data.settings.managerCanAddNotes)));
   var html = '<div class="spread"><h3>' + (isNew ? 'Nouvelle note' : 'Note') + '</h3><button class="btn ghost small" data-close>✕</button></div>';
   if (!canEdit) {
     html += '<p class="small muted">' + fmtDate(n.date, true) + (n.endDate ? ' → ' + fmtDate(n.endDate, true) : '') + '</p><p style="white-space:pre-wrap">' + esc(n.text) + '</p>';
@@ -867,7 +934,9 @@ function viewSettings() {
   return '<form id="setForm">' +
     '<div class="card"><h3>Appartement</h3><label class="f"><span>Nom affiché</span><input type="text" name="apartmentName" value="' + esc(s.apartmentName) + '"></label>' +
     '<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1"><span>Heure d\'arrivée</span><input type="time" name="checkinTime" value="' + esc(s.checkinTime) + '"></label>' +
-    '<label class="f" style="flex:1"><span>Heure de départ</span><input type="time" name="checkoutTime" value="' + esc(s.checkoutTime) + '"></label></div></div>' +
+    '<label class="f" style="flex:1"><span>Heure de départ</span><input type="time" name="checkoutTime" value="' + esc(s.checkoutTime) + '"></label></div>' +
+    '<label class="f"><span>Durée minimale de séjour (nuits)</span><input type="number" min="1" max="30" step="1" inputmode="numeric" name="minNights" value="' + esc(s.minNights) + '"></label>' +
+    '<p class="help">Un trou plus court entre deux séjours ne peut pas être réservé : il est grisé clair (« Non réservable ») dans le calendrier. Gris foncé = dates fermées.</p></div>' +
     '<div class="card"><h3>Calendriers (dates à jour)</h3>' +
     '<label class="f"><span>Lien calendrier Airbnb (.ics)</span><input type="url" name="icalAirbnb" value="' + esc(s.icalAirbnb) + '" placeholder="https://www.airbnb.fr/calendar/ical/….ics?s=…"></label>' +
     '<label class="f"><span>Lien calendrier Booking (.ics)</span><input type="url" name="icalBooking" value="' + esc(s.icalBooking) + '" placeholder="https://ical.booking.com/v1/export?t=…"></label>' +
@@ -889,13 +958,17 @@ function viewSettings() {
     '<div class="card"><h3>Page de la gestionnaire</h3><p class="help">Elle voit le planning, les arrivées/départs et les notes que tu rends visibles. Jamais tes montants (filtré sur le serveur).</p>' +
     '<label class="f"><span>Nom affiché</span><input type="text" name="managerLabel" value="' + esc(s.managerLabel) + '"></label>' +
     chk('managerShowGuestName', 'Montrer le prénom du voyageur') + chk('managerShowGuestCount', 'Montrer le nombre de voyageurs') +
-    chk('managerShowPhone', 'Montrer le téléphone du voyageur', 'Pratique pour organiser l\'arrivée.') +
+    chk('managerShowPhone', 'Montrer le téléphone du voyageur', 'Pratique pour organiser l\'arrivée. Nécessaire pour son bouton WhatsApp.') +
+    '<label class="f"><span>Message WhatsApp préparé pour elle</span><textarea name="managerWaMessage" rows="6">' + esc(s.managerWaMessage) + '</textarea></label>' +
+    '<p class="help">Quand elle touche « WhatsApp » sur un voyageur, ce message est déjà écrit : elle n\'a plus qu\'à l\'envoyer. Repères remplacés tout seuls : {prénom} {gestionnaire} {arrivée} {départ} {heure} {guide}.</p>' +
+    '<label class="f"><span>Guide d\'arrivée (mis à la place de {guide})</span><textarea name="arrivalGuide" rows="8" placeholder="Colle ici le texte de ton message automatique : adresse, accès, boîte à clés, Wi-Fi…">' + esc(s.arrivalGuide) + '</textarea></label>' +
+    '<p class="small" style="margin:2px 0 4px">Aperçu du message :</p><div class="sumbox" id="waPreview" style="white-space:pre-wrap;margin-top:0"></div>' +
     chk('managerCanAddNotes', 'Elle peut ajouter des notes', 'Ex. « plus de lessive ». Elle ne peut modifier que les siennes.') +
     '<label class="f"><span>Jours passés visibles</span><input type="number" min="0" max="365" name="managerPastDays" value="' + esc(s.managerPastDays) + '"></label>' +
     '<div class="linkbox" id="mgrLink">' + esc(d.managerUrl) + '</div><div class="row">' +
     '<button type="button" class="btn small" data-copy="' + esc(d.managerUrl) + '">Copier le lien</button>' +
     '<a class="btn small" style="text-decoration:none" target="_blank" href="https://wa.me/?text=' + waText + '">Envoyer par WhatsApp</a>' +
-    '<a class="btn small" style="text-decoration:none" target="_blank" href="' + esc(d.managerUrl) + '">Voir sa page</a>' +
+    '<button type="button" class="btn small" id="previewMgr">Aperçu de sa page</button>' +
     (d.managerDirectUrl !== d.managerUrl ? '<button type="button" class="btn small" data-copy="' + esc(d.managerDirectUrl) + '">Copier le lien direct</button>' : '') +
     '<button type="button" class="btn small danger" id="regen">Changer le lien</button></div></div>' +
     '<div class="card"><h3>Mon lien propriétaire</h3><p class="help">À garder pour toi : il donne accès à tes revenus. Perdu ? Il est dans ton e-mail « Ton lien propriétaire ».</p>' +
@@ -996,11 +1069,23 @@ function bindSettings(root) {
     });
   };
   var f = $('#setForm', root);
+  $('#previewMgr', root).onclick = function () { openPreview(this); };
+  // Aperçu du message WhatsApp avec les valeurs en cours de saisie, sur le prochain séjour (ou un exemple).
+  function waPrev() {
+    var fd = new FormData(f);
+    var t = S.data.today;
+    var r = activeRes().filter(function (x) { return x.checkin && x.checkin >= t; })[0] || { guest: 'Marie', checkin: addDays(t, 3), checkout: addDays(t, 5) };
+    var st = { managerWaMessage: fd.get('managerWaMessage') || '', arrivalGuide: fd.get('arrivalGuide') || '', managerLabel: fd.get('managerLabel') || '', checkinTime: fd.get('checkinTime') || '' };
+    $('#waPreview', root).textContent = waMessage(r, st) || '(message vide)';
+  }
+  ['managerWaMessage', 'arrivalGuide', 'managerLabel', 'checkinTime'].forEach(function (k) { f.querySelector('[name=' + k + ']').addEventListener('input', waPrev); });
+  waPrev();
   f.onsubmit = function (e) {
     e.preventDefault();
     var fd = new FormData(f);
     var p = {};
-    ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingHotelId', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
+    ['apartmentName', 'checkinTime', 'checkoutTime', 'icalAirbnb', 'icalBooking', 'bookingHotelId', 'bookingCommissionPct', 'syncEveryHours', 'managerLabel', 'managerPastDays', 'appUrl',
+      'minNights', 'managerWaMessage', 'arrivalGuide'].forEach(function (k) { p[k] = (fd.get(k) || '').trim(); });
     p.syncEveryHours = +p.syncEveryHours;
     ['emailScanEnabled', 'managerShowGuestName', 'managerShowGuestCount', 'managerShowPhone', 'managerCanAddNotes', 'autoUpdateEnabled'].forEach(function (k) { p[k] = !!fd.get(k); });
     var before = S.data.settings;
@@ -1012,45 +1097,106 @@ function bindSettings(root) {
 }
 
 // ======== gestionnaire ========
+// Contenu d'un séjour pour la gestionnaire : le même dans « Locataire actuel », « Prochains passages »
+// et la fenêtre ouverte en touchant le calendrier (full : dates avec l'année + gros boutons).
+function mgrBody(r, full) {
+  var s = S.data.settings;
+  var next = r.checkout ? S.data.reservations.filter(function (x) { return x.checkin === r.checkout && x.id !== r.id; })[0] : null;
+  var wa = waLink(r.phone, waMessage(r, s));
+  var tel = String(r.phone || '').replace(/[^\d+]/g, '');
+  return '<div class="spread"><b>' + esc(r.guest || 'Voyageur') + '</b><span class="small muted">' +
+      (SRC[r.source] && r.source !== 'direct' ? '<span class="badge ' + esc(r.source) + '">' + SRC[r.source] + '</span>' : '') +
+      (r.nights ? r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') + '</span></div>' +
+    '<div class="small">🟢 Arrivée ' + fmtDate(r.checkin, full) + ' à partir de ' + esc(s.checkinTime) + '</div>' +
+    '<div class="small">🔴 Départ ' + (r.checkout ? fmtDate(r.checkout, full) + ' avant ' + esc(s.checkoutTime) : 'date à confirmer') + '</div>' +
+    (r.guestsText ? '<div class="small muted">👥 ' + esc(r.guestsText) + '</div>' : '') +
+    (r.phone ? '<div class="small">📞 ' + (wa ? '<a href="tel:' + esc(tel) + '">' + esc(r.phone) + '</a>' + (full ? '' : waChip(r.phone, waMessage(r, s)))
+      : esc(r.phone) + ' <span class="muted">(numéro incomplet)</span>') + '</div>' : '') +
+    (full && wa ? '<div class="sh-actions" style="margin-top:10px"><a class="btn wa-btn" target="_blank" rel="noopener" href="' + esc(wa) + '">WhatsApp</a><a class="btn" href="tel:' + esc(tel) + '">Appeler</a></div>' : '') +
+    (r.checkout ? '<div class="small" style="margin-top:6px"><b>🧹 Ménage ' + fmtDate(r.checkout) + ' après ' + esc(s.checkoutTime) + '</b>' +
+      (next ? ' — <span style="color:var(--err)">nouvelle arrivée le même jour à ' + esc(s.checkinTime) + '</span>' : '') + '</div>' : '') +
+    (r.sharedNote ? '<div class="small" style="margin-top:6px">💬 ' + esc(r.sharedNote) + '</div>' : '');
+}
 function renderManager(app) {
   var d = S.data, s = d.settings, today = d.today;
-  var res = d.reservations;
-  var upcoming = res.filter(function (r) { return (r.checkout || r.checkin) >= today; });
-  var html = '<header class="top"><h1>' + esc(s.apartmentName) + '</h1><span class="chip">Planning</span>' +
+  var cur = currentRes();
+  // Le séjour en cours a sa propre case : pas répété dessous (un départ du jour reste, pour son ménage).
+  var upcoming = activeRes().filter(function (r) { return (r.checkout || r.checkin) >= today && (!cur || r.id !== cur.id); });
+  var html = '<header class="top"><h1>' + esc(s.apartmentName) + '</h1>' +
+    (S.preview ? '<button class="btn small" id="exitPreview">← Mon espace</button>' : '<span class="chip">Planning</span>') +
     '<button class="icon-btn" id="reload" title="Actualiser" aria-label="Actualiser">↻</button></header><div class="wrap">';
+  if (S.preview) html += '<div class="banner info"><b>Aperçu</b> : voici exactement ce que voit ' + esc(s.managerLabel || 'la gestionnaire') + ' (lecture seule). « ← Mon espace » pour revenir.</div>';
   html += '<div class="card">' + calendarHtml() + '</div>';
+  // Locataire actuel : qui est dans l'appartement en ce moment.
+  if (cur) {
+    html += '<div class="card cur mcard" id="curCard" data-mres="' + esc(cur.id) + '" role="button" tabindex="0"><div class="cur-h"><span class="live"></span>Locataire actuel</div>' + mgrBody(cur) + '</div>';
+  } else {
+    var nx = upcoming.filter(function (r) { return r.checkin >= today; })[0];
+    html += '<div class="card cur-empty" id="curCard"><div class="cur-h">Locataire actuel</div><div class="small muted">Personne dans l\'appartement en ce moment' +
+      (nx ? '. Prochaine arrivée : <b>' + esc(nx.guest || 'Voyageur') + '</b>, ' + fmtDate(nx.checkin) + ' dès ' + esc(s.checkinTime) : '') + '.</div></div>';
+  }
   html += '<h2>Prochains passages</h2>';
   if (!upcoming.length) html += '<div class="empty">Aucune réservation à venir.</div>';
-  upcoming.forEach(function (r) {
-    var next = res.filter(function (x) { return x.checkin === r.checkout; })[0];
-    html += '<div class="card"><div class="spread"><b>' + esc(r.guest || 'Voyageur') + '</b><span class="small muted">' + (r.nights ? r.nights + ' nuit' + (r.nights > 1 ? 's' : '') : '') + '</span></div>' +
-      '<div class="small">🟢 Arrivée ' + fmtDate(r.checkin) + ' à partir de ' + esc(s.checkinTime) + '</div>' +
-      '<div class="small">🔴 Départ ' + (r.checkout ? fmtDate(r.checkout) + ' avant ' + esc(s.checkoutTime) : 'date à confirmer') + '</div>' +
-      (r.guestsText ? '<div class="small muted">👥 ' + esc(r.guestsText) + '</div>' : '') +
-      (r.phone ? '<div class="small">📞 <a href="tel:' + esc(r.phone.replace(/[^\d+]/g, '')) + '">' + esc(r.phone) + '</a>' + waChip(r.phone) + '</div>' : '') +
-      (r.checkout ? '<div class="small" style="margin-top:6px"><b>🧹 Ménage ' + fmtDate(r.checkout) + ' après ' + esc(s.checkoutTime) + '</b>' +
-        (next ? ' — <span style="color:var(--err)">nouvelle arrivée le même jour à ' + esc(s.checkinTime) + '</span>' : '') + '</div>' : '') +
-      (r.sharedNote ? '<div class="small" style="margin-top:6px">💬 ' + esc(r.sharedNote) + '</div>' : '') + '</div>';
-  });
+  upcoming.forEach(function (r) { html += '<div class="card mcard" data-mres="' + esc(r.id) + '" role="button" tabindex="0">' + mgrBody(r) + '</div>'; });
   var notes = d.notes.filter(function (n) { return (n.endDate || n.date) >= today; }).sort(function (a, b) { return a.date.localeCompare(b.date); });
-  html += '<div class="spread"><h2>Notes</h2>' + (s.managerCanAddNotes ? '<button class="btn primary small" id="mAddNote">+ Note</button>' : '') + '</div>';
+  html += '<div class="spread"><h2>Notes</h2>' + (s.managerCanAddNotes && !S.preview ? '<button class="btn primary small" id="mAddNote">+ Note</button>' : '') + '</div>';
   if (!notes.length) html += '<div class="empty">Aucune note à venir.</div>';
   html += notes.map(noteCard).join('');
-  html += '<p class="help" style="text-align:center;margin-top:24px">Touche un jour du calendrier pour le détail.</p></div>';
+  html += '<p class="help" style="text-align:center;margin-top:24px">Touche un séjour ou un jour du calendrier pour le détail.</p></div>';
   app.innerHTML = html;
   bindCalendar(app);
   bindCommon(app);
-  $('#reload').onclick = function () { var b = this; b.disabled = true; call('load').then(function (data) { S.data = data; render(); toast('Planning à jour'); }, function (e) { b.disabled = false; toast(cleanErr(e), 'error'); }); };
+  app.querySelectorAll('[data-mres]').forEach(function (c) {
+    c.onclick = function (e) {
+      if (e.target.closest('a,[data-wa]')) return; // appeler / WhatsApp : sans ouvrir la fiche
+      var r = S.data.reservations.filter(function (x) { return x.id === c.getAttribute('data-mres'); })[0];
+      if (r) showManagerRes(r);
+    };
+  });
+  $('#reload').onclick = function () {
+    var b = this; b.disabled = true;
+    call(S.preview ? 'previewManager' : 'load').then(function (data) { S.data = data; S.loadedAt = Date.now(); render(); toast('Planning à jour'); }, function (e) { b.disabled = false; toast(cleanErr(e), 'error'); });
+  };
+  var xp = $('#exitPreview');
+  if (xp) xp.onclick = exitPreview;
   var an = $('#mAddNote');
   if (an) an.onclick = function () { editNote({ date: today, author: 'manager' }); };
 }
 function showManagerRes(r) {
-  var s = S.data.settings;
-  openModal('<div class="spread"><h3>' + esc(r.guest || 'Voyageur') + '</h3><button class="btn ghost small" data-close>✕</button></div>' +
-    '<p>🟢 Arrivée ' + fmtDate(r.checkin, true) + ' à partir de ' + esc(s.checkinTime) + '<br>🔴 Départ ' + (r.checkout ? fmtDate(r.checkout, true) + ' avant ' + esc(s.checkoutTime) : 'à confirmer') + '</p>' +
-    (r.guestsText ? '<p>👥 ' + esc(r.guestsText) + '</p>' : '') + (r.sharedNote ? '<p>💬 ' + esc(r.sharedNote) + '</p>' : ''), function (m) {
+  openModal('<div class="spread"><h3>' + (isCurrent(r) ? '🟢 Locataire actuel' : 'Séjour') + '</h3><button class="btn ghost small" data-close>✕</button></div>' +
+    '<div class="sheet">' + mgrBody(r, true) + '</div>', function (m) {
     m.querySelector('[data-close]').onclick = closeModal;
   });
+}
+// Aperçu de la page de la gestionnaire dans l'application du propriétaire : on n'ouvre plus son lien,
+// qui remplaçait l'accès propriétaire enregistré dans l'application installée (bug du 26 nov. 2026).
+function openPreview(btn) {
+  if (S.busy) return;
+  S.busy = true;
+  var label = btn.textContent; btn.disabled = true; btn.textContent = '…';
+  call('previewManager').then(function (data) {
+    S.busy = false;
+    S.ownerData = S.data;
+    S.data = data;
+    S.preview = true;
+    S.loadedAt = Date.now();
+    render();
+    window.scrollTo(0, 0);
+  }, function (e) {
+    S.busy = false; btn.disabled = false; btn.textContent = label;
+    toast(cleanErr(e), 'error');
+  });
+}
+function exitPreview() {
+  if (!S.preview) return;
+  closeModal();
+  S.data = S.ownerData;
+  S.ownerData = null;
+  S.preview = false;
+  S.tab = 'reglages';
+  render();
+  var c = $('#previewMgr');
+  if (c && c.scrollIntoView) c.scrollIntoView({ block: 'center' });
 }
 
 if (S.boot.mode === 'owner' || S.boot.mode === 'manager') load(); else render();
