@@ -20,19 +20,24 @@
   #install { display:none; position:fixed; left:12px; right:12px; bottom:12px; z-index:5; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow:0 8px 24px rgba(0,0,0,.2); align-items:center; gap:10px; }
   #install span { flex:1; font-size:14px; }
   #install button.x { background:none; border:0; font-size:18px; color:var(--muted); cursor:pointer; }
+  #back { display:none; position:fixed; right:12px; bottom:76px; z-index:6; box-shadow:0 6px 18px rgba(0,0,0,.25); }
 </style>
 </head>
 <body>
 <div id="root"></div>
 <div id="install"><span>Installer l'application sur cet appareil ?</span><button class="btn" id="installBtn">Installer</button><button class="x" id="installNo" aria-label="Plus tard">✕</button></div>
+<button class="btn" id="back">↩ Mon espace</button>
 <script>
 (function () {
   'use strict';
   // Lien reçu : …/#https://script.google.com/macros/s/…/exec?k=…  (le # n'est jamais envoyé au serveur).
   var ALLOWED = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec\?k=[0-9a-f]{64}$/;
   var KEY = 'gl-app-url';
-  function store(v) { try { if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); } catch (e) {} }
-  function stored() { try { return localStorage.getItem(KEY) || ''; } catch (e) { return ''; } }
+  // Lien propriétaire, retenu dès que la page propriétaire s'est affichée ici : si un autre lien
+  // (celui de la gestionnaire, ouvert pour voir sa page) le remplace, « ↩ Mon espace » y ramène.
+  var OWNER_KEY = 'gl-owner-url';
+  function store(v, k) { try { if (v) localStorage.setItem(k || KEY, v); else localStorage.removeItem(k || KEY); } catch (e) {} }
+  function stored(k) { try { return localStorage.getItem(k || KEY) || ''; } catch (e) { return ''; } }
   var fromHash = decodeURIComponent((location.hash || '').slice(1));
   var url = '';
   if (ALLOWED.test(fromHash)) { url = fromHash; store(url); history.replaceState(null, '', location.pathname); }
@@ -68,9 +73,16 @@
       });
     }) : Promise.resolve(null)).catch(function () { return null; });
   }
+  var back = document.getElementById('back');
+  var ownerUrl = stored(OWNER_KEY);
+  if (url && ownerUrl && ownerUrl !== url) back.style.display = 'inline-block';
+  back.onclick = function () { store(ownerUrl); location.reload(); };
   window.addEventListener('message', function (e) {
-    if (!shared || !e.data || e.data.type !== 'gl-ready' || !e.source) return;
+    if (!e.data || e.data.type !== 'gl-ready' || !e.source) return;
     if (!/^https:\/\/(script\.google\.com|[a-z0-9-]+\.googleusercontent\.com)$/.test(e.origin)) return;
+    // Seule la page propriétaire envoie « gl-ready » : le lien affiché est donc le lien propriétaire.
+    if (url && ALLOWED.test(url)) { store(url, OWNER_KEY); ownerUrl = url; back.style.display = 'none'; }
+    if (!shared) return;
     var p = shared, src = e.source, origin = e.origin;
     shared = null;
     p.then(function (file) { if (file) src.postMessage({ type: 'gl-shared-file', name: file.name, data: file.data }, origin); });
