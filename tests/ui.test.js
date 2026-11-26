@@ -241,6 +241,29 @@ async function main() {
   await page.click('[data-close]');
   await page.click('nav.tabs button[data-tab=reglages]');
 
+  // 7c. Message WhatsApp de la gestionnaire (réglable) : aperçu en direct, puis enregistré.
+  await page.check('input[name=managerShowPhone]');
+  await page.fill('input[name=managerLabel]', 'Candy');
+  await page.fill('textarea[name=arrivalGuide]', 'Boîte à clés : code 1234\nWi-Fi : Maison');
+  const prev = await page.textContent('#waPreview');
+  assert.match(prev, /Je suis Candy, je m'occupe de votre arrivée/);
+  assert.match(prev, /Boîte à clés : code 1234\nWi-Fi : Maison/);
+  assert.ok(!/\{/.test(prev), 'tous les repères remplacés');
+  await page.fill('input[name=minNights]', '2');
+  await page.click('#setSave');
+  await toast(page, /Réglages enregistrés/);
+  // 7d. « Aperçu de sa page » : sa page dans l'application, sans perdre l'accès propriétaire.
+  await page.click('#previewMgr');
+  await page.waitForSelector('#curCard');
+  assert.match(await page.textContent('.banner.info'), /Aperçu.*Candy/);
+  assert.match(await page.textContent('#curCard'), /Locataire actuel.*Jean/s);
+  assert.ok(!(await page.isVisible('nav.tabs')), 'menu propriétaire caché pendant l’aperçu');
+  assert.ok(!(await page.isVisible('#mAddNote')), 'lecture seule');
+  await shot(page, '07e-apercu-gestionnaire');
+  await page.click('#exitPreview');
+  await page.waitForSelector('#setForm');
+  assert.ok(await page.isVisible('nav.tabs button[data-tab=revenus]'), 'retour à l’espace propriétaire');
+
   // 8. Page gestionnaire : planning sans montants
   const mp = await open(manager, 'manager');
   await mp.waitForSelector('.cal');
@@ -249,7 +272,37 @@ async function main() {
   assert.match(mtext, /Changer les draps/);
   assert.match(mtext, /Arrivée tardive vers 22h/);
   assert.match(mtext, /Ménage/);
+  // Séjour en cours (Jean, 25 → 29 oct., on est le 27) : bandeau qui scintille + case « Locataire actuel ».
+  assert.ok(await mp.$eval('[data-bar-start="2026-10-25"]', e => e.classList.contains('now')), 'bandeau du séjour en cours');
+  assert.match(await mp.getAttribute('[data-bar-start="2026-10-25"]', 'style'), /var\(--airbnb\)/, 'couleur Airbnb');
+  const cur = await mp.textContent('#curCard');
+  assert.match(cur, /Locataire actuel/);
+  assert.match(cur, /Jean/);
+  assert.match(cur, /06 12 34 56 78/);
+  assert.ok(mtext.indexOf('Locataire actuel') < mtext.indexOf('Prochains passages'), 'au-dessus des prochains passages');
+  assert.ok(!/Jean/.test((await mp.$$eval('[data-mres]:not(#curCard)', els => els.map(e => e.textContent))).join(' ')), 'pas répété dans les prochains passages');
+  const wa = await mp.getAttribute('#curCard [data-wa]', 'data-wa');
+  assert.ok(wa.startsWith('https://wa.me/33612345678?text='), wa);
+  const msg = decodeURIComponent(wa.split('?text=')[1]);
+  assert.match(msg, /^Bonjour Jean 👋\nJe suis Candy, je m'occupe de votre arrivée à l'appartement le dimanche 25 octobre \(à partir de 15:00\)\./);
+  assert.match(msg, /Boîte à clés : code 1234/);
+  assert.match(await mp.textContent('.legend'), /Airbnb.*Booking.*En cours.*Libre.*Fermé.*Non réservable/s);
   await shot(mp, '08-gestionnaire');
+  // Toucher la case ou un séjour du calendrier : la fiche complète (téléphone, WhatsApp, Appeler).
+  await mp.click('#curCard .cur-h');
+  await mp.waitForSelector('.modal .sh-actions');
+  assert.match(await mp.textContent('.modal'), /Locataire actuel.*Jean.*Arrivée Dim\. 25 oct\. 2026.*06 12 34 56 78/s);
+  assert.ok((await mp.getAttribute('.modal .wa-btn', 'href')).startsWith('https://wa.me/33612345678?text=Bonjour%20Jean'));
+  assert.ok(await mp.isVisible('.modal a:has-text("Appeler")'));
+  await shot(mp, '08b-gestionnaire-fiche');
+  await mp.click('[data-close]');
+  await mp.click('#calNext');
+  assert.match(await mp.getAttribute('[data-bar-start="2026-11-04"]', 'style'), /var\(--booking\)/, 'couleur Booking');
+  assert.ok(await mp.$eval('[data-day="2026-11-25"]', e => e.classList.contains('blocked')), 'fermeture Airbnb en gris foncé');
+  await mp.click('[data-bar-start="2026-11-04"]');
+  await mp.waitForSelector('.modal .sheet');
+  assert.match(await mp.textContent('.modal'), /Séjour.*Booking.*Arrivée Mer\. 4 nov\. 2026/s);
+  await mp.click('[data-close]');
   await mp.click('#mAddNote');
   await mp.fill('textarea[name=text]', 'Plus de café');
   await mp.click('#noteSave');

@@ -93,6 +93,20 @@ async function main() {
   await frame3.waitForFunction(() => /Import : 8 nouvelle/.test((document.querySelector('#toast') || {}).textContent || ''), null, { timeout: 10000 });
   assert.match(await frame3.textContent('#importLast'), /export-booking\.csv/);
   assert.equal(await page.evaluate(() => caches.open('gl-share').then(c => c.keys()).then(k => k.length)), 0, 'fichier partagé effacé après usage');
+  assert.ok(!(await page.isVisible('#back')), 'pas de bouton retour sur l’espace propriétaire');
+
+  // 4c. Lien de la gestionnaire ouvert dans l'application du propriétaire (bug du 26 nov. 2026 :
+  // il remplaçait l'accès propriétaire, sans retour possible) : « ↩ Mon espace » y ramène.
+  const mgrUrl = directUrl.replace(/k=[0-9a-f]+$/, 'k=' + env.props.managerToken);
+  await page.goto('about:blank');
+  await page.goto(BASE + '#' + mgrUrl);
+  const fm = await (await page.waitForSelector('iframe')).contentFrame();
+  await fm.waitForSelector('.chip:has-text("Planning")', { timeout: 10000 });
+  await page.waitForSelector('#back', { state: 'visible' });
+  await Promise.all([page.waitForNavigation(), page.click('#back')]);
+  const fo = await (await page.waitForSelector('iframe')).contentFrame();
+  await fo.waitForSelector('nav.tabs', { timeout: 10000 });
+  assert.ok(!(await page.isVisible('#back')), 'de retour chez le propriétaire');
 
   // 5. Lien invalide refusé (pas d'iframe vers un site arbitraire)
   const p2 = await (await browser.newContext()).newPage();

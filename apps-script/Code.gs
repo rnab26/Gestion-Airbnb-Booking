@@ -13,7 +13,7 @@
  * Accès : chaque page est protégée par une clé secrète dans le lien (?k=...).
  */
 
-var APP_VERSION = '1.5.3'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
+var APP_VERSION = '1.6.0'; // à augmenter à chaque changement : c'est ce que compare la mise à jour automatique
 
 // Mise à jour automatique : code publié sur la branche « stable », que GitHub ne
 // met à jour qu'après passage des tests (voir .github/workflows/tests.yml).
@@ -63,8 +63,16 @@ var DEFAULT_SETTINGS = {
   // passent par elle pour pouvoir « Installer l'application » depuis Chrome. Vide = liens directs.
   appUrl: 'https://rnab26.github.io/Gestion-Airbnb-Booking/',
   // N° d'établissement Booking (extranet, « hotel_id ») : pour ouvrir une réservation dans l'extranet depuis la fiche.
-  bookingHotelId: ''
+  bookingHotelId: '',
+  // Durée minimale d'un séjour (nuits) : un trou plus court entre deux séjours n'est pas réservable (grisé clair).
+  minNights: 2,
+  // Message WhatsApp préparé pour la gestionnaire quand elle écrit à un voyageur.
+  // Repères remplacés : {prénom} {gestionnaire} {arrivée} {départ} {heure} {guide}.
+  managerWaMessage: 'Bonjour {prénom} 👋\nJe suis {gestionnaire}, je m\'occupe de votre arrivée à l\'appartement le {arrivée} (à partir de {heure}).\n\n{guide}\n\nJe reste disponible ici sur WhatsApp. Bon séjour !',
+  // Guide d'arrivée (adresse, accès, boîte à clés, Wi-Fi…) inséré à la place de {guide}. Vide = ligne retirée.
+  arrivalGuide: ''
 };
+var MIN_NIGHTS_MAX = 30;
 var SYNC_HOURS_ALLOWED = [1, 2, 4, 6, 12, 24];
 // Champs qu'une modification à la main protège contre la synchronisation.
 var EDITABLE_RES_FIELDS = ['guest', 'guestsText', 'checkin', 'checkout', 'amountNet',
@@ -166,6 +174,8 @@ var OWNER_ACTIONS = {
   checkUpdate: function () { checkUpdate_(true); return ownerData_(); },
   setUpdaterCreds: function (p) { setUpdaterCreds_(p); return ownerData_(); },
   importBookingExport: function (p) { var res = importBookingExport_(p); var d = ownerData_(); d.importResult = res; return d; },
+  // Aperçu, dans l'application du propriétaire, de ce que voit la gestionnaire (mêmes données filtrées).
+  previewManager: function () { return managerData_(); },
   clearUpdaterCreds: function () { PropertiesService.getScriptProperties().deleteProperty('updaterCreds'); return ownerData_(); },
   regenerateManagerLink: function () {
     PropertiesService.getScriptProperties().setProperty('managerToken', newToken_());
@@ -204,8 +214,10 @@ function ownerData_() {
   return {
     role: 'owner',
     today: todayYmd_(),
+    nowTime: nowHm_(),
     settings: settings,
     reservations: rows,
+    closures: closuresFor_(rows, settings.minNights),
     notes: notes,
     stats: computeStats_(rows, model.unallocated),
     booking: {
@@ -238,7 +250,8 @@ function managerData_() {
   var s = getSettings_();
   var today = todayYmd_();
   var from = addDays_(today, -Math.max(0, Number(s.managerPastDays) || 0));
-  var res = readRows_(SHEET_RES, RES_COLS)
+  var all = readRows_(SHEET_RES, RES_COLS);
+  var res = all
     .filter(function (r) { return isActive_(r) && isYmd_(r.checkin) && (r.checkout || r.checkin) >= from; })
     .map(function (r) {
       return {
@@ -260,14 +273,20 @@ function managerData_() {
   return {
     role: 'manager',
     today: today,
+    nowTime: nowHm_(),
     settings: {
       apartmentName: s.apartmentName,
       checkinTime: s.checkinTime,
       checkoutTime: s.checkoutTime,
       managerLabel: s.managerLabel,
-      managerCanAddNotes: !!s.managerCanAddNotes
+      managerCanAddNotes: !!s.managerCanAddNotes,
+      // Message WhatsApp préparé : utile seulement si elle voit les numéros.
+      managerWaMessage: s.managerShowPhone ? s.managerWaMessage : '',
+      arrivalGuide: s.managerShowPhone ? s.arrivalGuide : ''
     },
     reservations: res,
+    // Jours fermés : seulement des dates et un type, jamais la plateforme ni la raison détaillée.
+    closures: closuresFor_(all, s.minNights).filter(function (c) { return c.end > from; }),
     notes: notes,
     version: APP_VERSION
   };
@@ -464,6 +483,12 @@ function saveSettings_(p) {
   var hid = String(p.bookingHotelId === undefined ? cur.bookingHotelId : p.bookingHotelId || '').replace(/\s/g, '');
   if (hid && !/^\d{4,12}$/.test(hid)) throw new Error('N° d\'établissement Booking : des chiffres seulement (ex. 1234567), ou vide.');
   next.bookingHotelId = hid;
+  var mn = p.minNights === undefined ? cur.minNights : Number(String(p.minNights).trim());
+  if (!(mn >= 1 && mn <= MIN_NIGHTS_MAX) || Math.round(mn) !== mn) throw new Error('Durée minimale de séjour : un nombre entier de nuits entre 1 et ' + MIN_NIGHTS_MAX + '.');
+  next.minNights = mn;
+  var wm = p.managerWaMessage === undefined ? cur.managerWaMessage : str_(p.managerWaMessage, 2000).trim();
+  next.managerWaMessage = wm || DEFAULT_SETTINGS.managerWaMessage;
+  next.arrivalGuide = p.arrivalGuide === undefined ? cur.arrivalGuide : str_(p.arrivalGuide, 6000).trim();
   PropertiesService.getScriptProperties().setProperty('settings', JSON.stringify(next));
   if (next.syncEveryHours !== cur.syncEveryHours) installTrigger_(next.syncEveryHours);
 }
@@ -2009,6 +2034,66 @@ function isActive_(r) {
   return r.status !== 'cancelled' && r.status !== 'blocked' && r.hidden !== '1';
 }
 
+/**
+ * Jours fermés du calendrier, en plages de nuits [start, end[ :
+ *  - « unbookable » (gris clair) : trou entre deux indisponibilités plus court que la durée minimale,
+ *    ou court blocage collé à un séjour (temps de préparation, trou fermé par la plateforme) ;
+ *  - « manual » (gris foncé) : les autres dates fermées sur Airbnb/Booking, et les blocages saisis dans l'outil.
+ * Seule source de vérité des gris : le propriétaire et la gestionnaire voient le même calendrier.
+ */
+function closuresFor_(rows, minNights) {
+  var min = Math.max(1, Math.round(Number(minNights) || 1));
+  var kind = {}; // nuit → 'stay' | 'block' | 'blockTool'
+  var lo = '', hi = '';
+  function mark(r, k) {
+    var end = r.checkout && r.checkout > r.checkin ? r.checkout : addDays_(r.checkin, 1);
+    for (var d = r.checkin; d < end; d = addDays_(d, 1)) {
+      if (k === 'stay' || !kind[d] || (kind[d] === 'block' && k === 'blockTool')) kind[d] = k;
+    }
+    if (!lo || r.checkin < lo) lo = r.checkin;
+    if (!hi || end > hi) hi = end;
+  }
+  rows.forEach(function (r) {
+    if (r.hidden === '1' || !isYmd_(r.checkin) || (r.checkout && !isYmd_(r.checkout))) return;
+    if (isActive_(r)) mark(r, 'stay');
+    else if (r.status === 'blocked') mark(r, r.origin === 'manual' ? 'blockTool' : 'block');
+  });
+  if (!lo) return [];
+  var nights = [];
+  for (var d = lo; d < hi; d = addDays_(d, 1)) nights.push({ d: d, k: kind[d] || 'free' });
+  var out = new Array(nights.length);
+  // Découpe en suites de nuits de même nature, puis classe chaque suite.
+  var runs = [];
+  nights.forEach(function (n, i) {
+    var g = n.k === 'blockTool' ? 'block' : n.k;
+    var last = runs[runs.length - 1];
+    if (last && last.g === g) last.to = i; else runs.push({ g: g, from: i, to: i });
+  });
+  runs.forEach(function (run, ri) {
+    var len = run.to - run.from + 1;
+    var prev = runs[ri - 1], next = runs[ri + 1];
+    var k = null;
+    if (run.g === 'free') {
+      if (prev && next && len < min) k = 'unbookable';
+    } else if (run.g === 'block') {
+      var touchesStay = (prev && prev.g === 'stay') || (next && next.g === 'stay');
+      k = touchesStay && len < min ? 'unbookable' : 'manual';
+    }
+    for (var i = run.from; i <= run.to; i++) {
+      out[i] = run.g === 'block' && nights[i].k === 'blockTool' ? 'manual' : k;
+    }
+  });
+  var res = [];
+  nights.forEach(function (n, i) {
+    var k = out[i];
+    var last = res[res.length - 1];
+    if (!k) return;
+    if (last && last.kind === k && last.end === n.d) last.end = addDays_(n.d, 1);
+    else res.push({ start: n.d, end: addDays_(n.d, 1), kind: k });
+  });
+  return res;
+}
+
 /** Taux Booking appliqué au prix client : réglage, sinon taux réel des factures, sinon 17 %. */
 function bookingRate_(settings, invoices) {
   if (settings.bookingCommissionPct !== '' && settings.bookingCommissionPct !== null && settings.bookingCommissionPct !== undefined) {
@@ -2438,4 +2523,8 @@ function nightsBetween_(a, b) {
 function nowIso_() { return new Date().toISOString(); }
 function todayYmd_() {
   return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Europe/Paris', 'yyyy-MM-dd');
+}
+/** Heure locale du logement (« 14:05 ») : sert à savoir qui est dans l'appartement en ce moment. */
+function nowHm_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Europe/Paris', 'HH:mm');
 }
